@@ -1,4 +1,14 @@
-"""Curses-based TUI engine for POSIX systems (Linux / macOS)."""
+"""Curses-based TUI engine for POSIX systems (Linux / macOS).
+
+v4.0 layout:
+  Row 0:  ━━━ 🔧 Smart File Collector v4.0.0 ━━━   (cyan, bold)
+  Row 1:  📂 Project: <name>  │  📄 Files: <n>      (dim/gray)
+  Row 2:  ──────────────────── separator             (dim)
+  Row 3+: menu items
+  Row -3: navigation hints                           (yellow)
+  Row -2: Made with ❤️ by Heysh1n                     (cyan)
+  Row -1: (reserved for prompts)
+"""
 
 from __future__ import annotations
 
@@ -7,25 +17,20 @@ import locale
 import os
 
 from .base import Engine, Key, KeyEvent, MenuItem
+from ..version import FOOTER_TEXT
 
 
 # ── Color pair IDs ──────────────────────────────────────────────────
 
 _CP_NORMAL: int = 0
-_CP_HEADER: int = 1
+_CP_TITLE: int = 1
 _CP_CURSOR: int = 2
 _CP_CHECKED: int = 3
 _CP_DIM: int = 4
-_CP_FOOTER: int = 5
+_CP_NAV: int = 5
 _CP_ERROR: int = 6
 _CP_INPUT: int = 7
-
-
-def _can_unicode() -> bool:
-    """Check if the terminal likely supports unicode box-drawing + emoji."""
-    enc = locale.getpreferredencoding(False).lower()
-    lang = os.environ.get("LANG", "") + os.environ.get("LC_ALL", "")
-    return "utf" in enc or "utf" in lang.lower()
+_CP_AUTHOR: int = 8
 
 
 class CursesEngine(Engine):
@@ -34,7 +39,6 @@ class CursesEngine(Engine):
     def __init__(self) -> None:
         self._scr: curses.window | None = None
         self._started: bool = False
-        self._unicode: bool = False
 
     # ════════════════════════════════════════════════════════════════
     #  LIFECYCLE
@@ -44,13 +48,12 @@ class CursesEngine(Engine):
         if self._started:
             return
 
-        # Set locale BEFORE curses init — critical for wide-char support
         try:
             locale.setlocale(locale.LC_ALL, "")
         except locale.Error:
             pass
 
-        self._unicode = _can_unicode()
+        os.environ.setdefault("ESCDELAY", "25")
 
         self._scr = curses.initscr()
         curses.noecho()
@@ -58,19 +61,17 @@ class CursesEngine(Engine):
         curses.curs_set(0)
         self._scr.keypad(True)
 
-        # Minimal delay for escape sequences
-        os.environ.setdefault("ESCDELAY", "25")
-
         if curses.has_colors():
             curses.start_color()
             curses.use_default_colors()
-            curses.init_pair(_CP_HEADER, curses.COLOR_CYAN, -1)
+            curses.init_pair(_CP_TITLE, curses.COLOR_CYAN, -1)
             curses.init_pair(_CP_CURSOR, curses.COLOR_BLACK, curses.COLOR_CYAN)
             curses.init_pair(_CP_CHECKED, curses.COLOR_GREEN, -1)
             curses.init_pair(_CP_DIM, curses.COLOR_WHITE, -1)
-            curses.init_pair(_CP_FOOTER, curses.COLOR_YELLOW, -1)
+            curses.init_pair(_CP_NAV, curses.COLOR_YELLOW, -1)
             curses.init_pair(_CP_ERROR, curses.COLOR_RED, -1)
             curses.init_pair(_CP_INPUT, curses.COLOR_WHITE, curses.COLOR_BLUE)
+            curses.init_pair(_CP_AUTHOR, curses.COLOR_CYAN, -1)
 
         self._started = True
 
@@ -83,50 +84,40 @@ class CursesEngine(Engine):
                 self._scr.keypad(False)
             except curses.error:
                 pass
-        try:
-            curses.curs_set(1)
-        except curses.error:
-            pass
-        try:
-            curses.nocbreak()
-        except curses.error:
-            pass
-        try:
-            curses.echo()
-        except curses.error:
-            pass
-        try:
-            curses.endwin()
-        except curses.error:
-            pass
+        for fn in (
+            lambda: curses.curs_set(1),
+            curses.nocbreak,
+            curses.echo,
+            curses.endwin,
+        ):
+            try:
+                fn()
+            except curses.error:
+                pass
 
     # ════════════════════════════════════════════════════════════════
     #  SAFE STRING HELPERS
     # ════════════════════════════════════════════════════════════════
 
-    def _safe_addstr(
+    def _safe(
         self,
         row: int,
         col: int,
         text: str,
         attr: int = 0,
     ) -> None:
-        """Write string, stripping problematic characters if needed."""
+        """Write string safely — clips to terminal, catches errors."""
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
         if row < 0 or row >= rows or col < 0 or col >= cols:
             return
-
-        # Truncate to available width
         max_len = cols - col - 1
         if max_len <= 0:
             return
         text = text[:max_len]
-
         try:
             self._scr.addstr(row, col, text, attr)
         except curses.error:
-            # Fallback: strip non-ASCII characters and retry
             cleaned = self._ascii_fallback(text)
             try:
                 self._scr.addstr(row, col, cleaned[:max_len], attr)
@@ -134,7 +125,7 @@ class CursesEngine(Engine):
                 pass
 
     def _ascii_fallback(self, text: str) -> str:
-        """Replace emoji and box-drawing chars with ASCII equivalents."""
+        """Replace emoji / special chars with ASCII equivalents."""
         _MAP = {
             "📂": "[D]", "📄": "[F]", "📦": "[P]", "📋": "[=]",
             "📅": "[d]", "🔧": "[*]", "🔍": "[?]", "📝": "[>]",
@@ -146,11 +137,18 @@ class CursesEngine(Engine):
             "└": "+", "┘": "+", "├": "+", "┤": "+",
             "▸": ">", "▲": "^", "▼": "v",
             "✓": "x", "✗": "-",
+            "❤️": "<3", "❤": "<3",
         }
         for k, v in _MAP.items():
             text = text.replace(k, v)
-        # Strip remaining non-ASCII if still problematic
         return text.encode("ascii", errors="replace").decode("ascii")
+
+    def _clear_row(self, row: int) -> None:
+        """Blank out an entire row."""
+        assert self._scr is not None
+        rows, cols = self._scr.getmaxyx()
+        if 0 <= row < rows:
+            self._safe(row, 0, " " * (cols - 1))
 
     # ════════════════════════════════════════════════════════════════
     #  INPUT
@@ -212,10 +210,9 @@ class CursesEngine(Engine):
     def prompt(self, label: str, prefill: str = "") -> str | None:
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
-        prompt_row: int = rows - 2
+        prompt_row: int = rows - 3  # above author footer
 
         curses.curs_set(1)
-
         buf: list[str] = list(prefill)
 
         while True:
@@ -224,9 +221,9 @@ class CursesEngine(Engine):
             if len(display) > max_d:
                 display = display[-max_d:]
 
-            self._safe_addstr(prompt_row, 0, " " * (cols - 1))
-            self._safe_addstr(prompt_row, 1, label, curses.color_pair(_CP_FOOTER))
-            self._safe_addstr(prompt_row, len(label) + 1, display)
+            self._clear_row(prompt_row)
+            self._safe(prompt_row, 1, label, curses.color_pair(_CP_NAV))
+            self._safe(prompt_row, len(label) + 1, display)
 
             cursor_x: int = min(len(label) + 1 + len(display), cols - 1)
             try:
@@ -270,19 +267,17 @@ class CursesEngine(Engine):
     def confirm(self, question: str) -> bool:
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
-        prompt_row = rows - 2
+        prompt_row = rows - 3
         full = f"{question} (y/n): "
-        self._safe_addstr(prompt_row, 0, " " * (cols - 1))
-        self._safe_addstr(prompt_row, 1, full, curses.color_pair(_CP_FOOTER))
+        self._clear_row(prompt_row)
+        self._safe(prompt_row, 1, full, curses.color_pair(_CP_NAV))
         self._scr.refresh()
 
         while True:
             ev = self.get_key()
             if ev.key is Key.CHAR and ev.char.lower() in ("y", "n"):
                 return ev.char.lower() == "y"
-            if ev.key is Key.ENTER:
-                return False
-            if ev.key is Key.ESCAPE:
+            if ev.key in (Key.ENTER, Key.ESCAPE):
                 return False
 
     # ════════════════════════════════════════════════════════════════
@@ -298,17 +293,38 @@ class CursesEngine(Engine):
         return self._scr.getmaxyx()
 
     def draw_header(self, lines: list[str]) -> None:
+        """Render header with styled title (cyan bold) and stats (dim).
+
+        Convention:
+          lines[0] → title line (cyan bold)
+          lines[1] → stats line (dim/gray)
+          lines[2:] → additional header lines (dim)
+        """
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
-        attr = curses.color_pair(_CP_HEADER) | curses.A_BOLD
+
+        attr_title = curses.color_pair(_CP_TITLE) | curses.A_BOLD
+        attr_stats = curses.color_pair(_CP_DIM)
+
+        row = 0
         for i, line in enumerate(lines):
-            if i >= rows - 2:
+            if row >= rows - 4:
                 break
-            self._safe_addstr(i, 0, line, attr)
-        sep_row = len(lines)
-        if sep_row < rows - 1:
-            sep = "-" * min(cols - 1, 60)
-            self._safe_addstr(sep_row, 0, sep, curses.color_pair(_CP_DIM))
+            if not line:
+                # Skip blank lines but still count them
+                row += 1
+                continue
+            if i == 0:
+                self._safe(row, 0, line, attr_title)
+            else:
+                self._safe(row, 0, line, attr_stats)
+            row += 1
+
+        # Separator line
+        if row < rows - 3:
+            sep_w = min(cols - 1, 60)
+            self._safe(row, 0, "─" * sep_w, curses.color_pair(_CP_DIM))
+
         self._scr.refresh()
 
     def draw_items(
@@ -320,13 +336,12 @@ class CursesEngine(Engine):
     ) -> None:
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
-        # Start items right after the header separator
-        start_row: int = self._get_item_start_row()
+        start_row: int = self._item_start_row()
 
         for vi in range(visible_count):
             idx: int = offset + vi
             row: int = start_row + vi
-            if row >= rows - 2:
+            if row >= rows - 3:  # leave room for footer (nav + author + prompt)
                 break
             if idx >= len(items):
                 break
@@ -334,25 +349,27 @@ class CursesEngine(Engine):
             item: MenuItem = items[idx]
             is_cur: bool = idx == cursor
 
+            # Build prefix
             prefix: str
             if item.checked is not None:
                 mark: str = "x" if item.checked else " "
                 prefix = f" [{mark}] "
             else:
-                prefix = "  "
+                prefix = "   "
 
             if is_cur:
-                prefix = " >" + prefix[2:]
+                prefix = " ▸" + prefix[2:]
 
             label: str = item.label
             suffix: str = f"  {item.suffix}" if item.suffix else ""
 
             max_label: int = cols - len(prefix) - len(suffix) - 2
             if max_label > 0 and len(label) > max_label:
-                label = label[:max_label - 1] + "~"
+                label = label[: max_label - 1] + "~"
 
             line: str = f"{prefix}{label}{suffix}"
 
+            # Choose attribute
             if is_cur:
                 attr = curses.color_pair(_CP_CURSOR) | curses.A_BOLD
             elif not item.enabled:
@@ -362,29 +379,45 @@ class CursesEngine(Engine):
             else:
                 attr = curses.color_pair(_CP_NORMAL)
 
-            # Clear row first
-            self._safe_addstr(row, 0, " " * (cols - 1), curses.color_pair(_CP_NORMAL))
-            self._safe_addstr(row, 0, line, attr)
+            self._clear_row(row)
+            self._safe(row, 0, line, attr)
 
-        # Scroll indicators (ASCII safe)
+        # Scroll indicators
         if offset > 0:
-            self._safe_addstr(start_row, cols - 2, "^", curses.color_pair(_CP_DIM))
-        if offset + visible_count < len(items):
+            self._safe(start_row, cols - 2, "▲", curses.color_pair(_CP_DIM))
+        total_below = len(items) - (offset + visible_count)
+        if total_below > 0:
             last_vis = start_row + min(visible_count, len(items) - offset) - 1
-            if last_vis < rows - 2:
-                self._safe_addstr(last_vis, cols - 2, "v", curses.color_pair(_CP_DIM))
+            if last_vis < rows - 3:
+                self._safe(last_vis, cols - 2, "▼", curses.color_pair(_CP_DIM))
 
         self._scr.refresh()
 
     def draw_footer(self, lines: list[str]) -> None:
+        """Render footer lines at the bottom.
+
+        By convention the last element of *lines* is ``FOOTER_TEXT``
+        (``Made with ❤️ by Heysh1n``), rendered in cyan.
+        All preceding lines are navigation hints in yellow.
+        """
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
+
+        total = len(lines)
+        start_row = rows - total - 1  # -1 to keep last row for prompts
+
         for i, line in enumerate(lines):
-            row = rows - len(lines) + i
-            if row < 0:
+            row = start_row + i
+            if row < 0 or row >= rows:
                 continue
-            self._safe_addstr(row, 0, " " * (cols - 1))
-            self._safe_addstr(row, 1, line, curses.color_pair(_CP_FOOTER))
+            self._clear_row(row)
+            if i == total - 1:
+                # Author line — cyan
+                self._safe(row, 1, line, curses.color_pair(_CP_AUTHOR))
+            else:
+                # Nav hints — yellow
+                self._safe(row, 1, line, curses.color_pair(_CP_NAV))
+
         self._scr.refresh()
 
     def draw_text_block(self, text: str) -> None:
@@ -395,22 +428,25 @@ class CursesEngine(Engine):
         while True:
             rows, cols = self._scr.getmaxyx()
             self._scr.erase()
-            visible = rows - 2
+            visible = rows - 3  # room for hint + author
 
             for i in range(visible):
                 li = offset + i
                 if li >= len(text_lines):
                     break
-                self._safe_addstr(i, 0, text_lines[li], curses.color_pair(_CP_NORMAL))
+                self._safe(i, 0, text_lines[li], curses.color_pair(_CP_NORMAL))
 
             total_pages = max(1, (len(text_lines) + visible - 1) // visible)
             cur_page = (offset // visible) + 1 if visible > 0 else 1
-            hint = f" Up/Down:scroll  q/ESC:back  ({cur_page}/{total_pages})"
-            self._safe_addstr(rows - 1, 0, hint, curses.color_pair(_CP_FOOTER))
+            hint = f" ↑↓:scroll  q/ESC:back  ({cur_page}/{total_pages})"
+            self._safe(rows - 2, 0, hint, curses.color_pair(_CP_NAV))
+            self._safe(rows - 1, 1, FOOTER_TEXT, curses.color_pair(_CP_AUTHOR))
             self._scr.refresh()
 
             ev = self.get_key()
-            if ev.key is Key.ESCAPE or (ev.key is Key.CHAR and ev.char in ("q", "Q")):
+            if ev.key is Key.ESCAPE or (
+                ev.key is Key.CHAR and ev.char in ("q", "Q")
+            ):
                 return
             if ev.key is Key.UP:
                 offset = max(0, offset - 1)
@@ -419,7 +455,9 @@ class CursesEngine(Engine):
             elif ev.key is Key.PAGE_UP:
                 offset = max(0, offset - visible)
             elif ev.key is Key.PAGE_DOWN:
-                offset = min(max(0, len(text_lines) - visible), offset + visible)
+                offset = min(
+                    max(0, len(text_lines) - visible), offset + visible,
+                )
             elif ev.key is Key.HOME:
                 offset = 0
             elif ev.key is Key.END:
@@ -431,17 +469,25 @@ class CursesEngine(Engine):
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
         lines = msg.split("\n")
-        start_row = max(0, (rows - len(lines)) // 2)
+        start_row = max(0, (rows - len(lines) - 2) // 2)
         self._scr.erase()
-        attr = curses.color_pair(_CP_HEADER) | curses.A_BOLD
+
+        attr = curses.color_pair(_CP_TITLE) | curses.A_BOLD
         for i, line in enumerate(lines):
             r = start_row + i
-            if r >= rows:
+            if r >= rows - 2:
                 break
             x = max(0, (cols - len(line)) // 2)
-            self._safe_addstr(r, x, line, attr)
+            self._safe(r, x, line, attr)
+
+        # Author footer always visible
+        self._safe(rows - 1, 1, FOOTER_TEXT, curses.color_pair(_CP_AUTHOR))
+
         if wait:
-            self._safe_addstr(rows - 1, 1, "Press any key...", curses.color_pair(_CP_DIM))
+            self._safe(
+                rows - 2, 1, "Press any key...",
+                curses.color_pair(_CP_DIM),
+            )
         self._scr.refresh()
         if wait:
             self.get_key()
@@ -450,16 +496,17 @@ class CursesEngine(Engine):
     #  INTERNAL
     # ════════════════════════════════════════════════════════════════
 
-    def _get_item_start_row(self) -> int:
-        """Header lines + 1 separator.  Scan to find it reliably."""
+    def _item_start_row(self) -> int:
+        """Scan for the separator line to find where items begin."""
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
         for r in range(min(10, rows)):
             try:
                 raw = self._scr.instr(r, 0, min(3, cols))
-                # The separator is drawn as ASCII "-" now
+                if raw.startswith(b"\xe2\x94\x80"):  # UTF-8 for "─"
+                    return r + 1
                 if raw.startswith(b"-") or raw.startswith(b"="):
                     return r + 1
             except curses.error:
                 continue
-        return 4
+        return 3  # safe default

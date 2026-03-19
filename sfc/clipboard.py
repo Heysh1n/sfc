@@ -20,8 +20,8 @@ from typing import NamedTuple
 class ClipboardResult(NamedTuple):
     """Outcome of a clipboard copy attempt."""
     ok: bool
-    backend: str  # tool name that succeeded, or "" on failure
-    error: str    # human-readable error, or "" on success
+    backend: str   # tool name that succeeded, or "" on failure
+    error: str     # human-readable error, or "" on success
 
 
 def _is_wayland() -> bool:
@@ -53,7 +53,7 @@ def _try_tool(tool: str, args: list[str], data: bytes) -> bool:
     """Check if *tool* exists on PATH, then run with *args*."""
     if shutil.which(tool) is None:
         return False
-    return _run([tool] + args, data)
+    return _run([tool, *args], data)
 
 
 def copy_to_clipboard(text: str) -> ClipboardResult:
@@ -68,11 +68,9 @@ def copy_to_clipboard(text: str) -> ClipboardResult:
     # ── Windows ─────────────────────────────────────────────────
     if sys.platform == "win32":
         # clip.exe expects UTF-16 LE on stdin for full Unicode support
-        data = text.encode("utf-16-le")
-        # Fallback: utf-8 if utf-16 fails (very old Windows)
-        if _try_tool("clip", [], data):
+        if _try_tool("clip", [], text.encode("utf-16-le")):
             return ClipboardResult(ok=True, backend="clip.exe", error="")
-        # Try utf-8 as last resort
+        # Fallback: UTF-8
         if _try_tool("clip", [], text.encode("utf-8")):
             return ClipboardResult(ok=True, backend="clip.exe", error="")
         return ClipboardResult(

@@ -7,14 +7,12 @@ import os
 
 
 def main() -> None:
-    # Zipapp flattens into zip root — relative imports break.
-    # Detect and fix by inserting the zip/dir into sys.path so the
-    # 'sfc' package inside the staging layout is importable.
+    """Bootstrap and run sfc."""
     try:
         from .app import run
     except ImportError:
-        # We are NOT inside a package (zipapp direct execution).
-        # The zipapp was built with staging/ containing sfc/ as subdir.
+        # Zipapp direct execution — relative imports unavailable.
+        # The zipapp staging layout has sfc/ as a subdirectory.
         _here = os.path.dirname(os.path.abspath(__file__))
         if _here not in sys.path:
             sys.path.insert(0, _here)
@@ -22,6 +20,9 @@ def main() -> None:
 
     try:
         run(sys.argv[1:])
+    except KeyboardInterrupt:
+        print("\n👋 Interrupted", file=sys.stderr)
+        sys.exit(130)
     except Exception as exc:
         print(f"\n❌ Fatal error: {exc}", file=sys.stderr)
         if "--debug" in sys.argv:

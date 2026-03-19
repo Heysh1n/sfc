@@ -1,4 +1,8 @@
-"""Default ignore patterns, self-identification files, and glob resolution."""
+"""Default ignore patterns, self-identification files, and glob resolution.
+
+All pattern sets are ``frozenset`` — immutable defaults that the user's
+editable config (``config.py``) copies into mutable lists.
+"""
 
 from __future__ import annotations
 
@@ -6,24 +10,34 @@ import fnmatch
 from pathlib import Path
 
 
-# ── Default ignore sets (immutable) ─────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+#  DEFAULT IGNORE SETS (immutable)
+# ════════════════════════════════════════════════════════════════════
 
 DEFAULT_IGNORE_DIRS: frozenset[str] = frozenset({
-    "__pycache__", ".git", ".svn", ".hg",
-    "node_modules", ".venv", "venv", "env",
+    # Python
+    "__pycache__", ".mypy_cache", ".pytest_cache", ".tox", ".nox",
+    ".eggs", ".ruff_cache", ".venv", "venv", "env",
+    # VCS
+    ".git", ".svn", ".hg",
+    # IDE
     ".idea", ".vscode", ".vs",
+    # Build output
     "dist", "build", "__MACOSX",
-    ".mypy_cache", ".pytest_cache", ".tox", ".nox",
-    ".eggs", ".ruff_cache",
-    ".terraform", ".gradle", ".cargo",
+    # Language-specific
+    "node_modules", ".terraform", ".gradle", ".cargo",
     ".next", ".nuxt", ".parcel-cache",
 })
 
 DEFAULT_IGNORE_FILES: frozenset[str] = frozenset({
+    # OS junk
     ".DS_Store", "Thumbs.db", "desktop.ini",
+    # VCS metadata
     ".gitignore", ".gitattributes", ".gitmodules",
+    # Lock files
     "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
     "poetry.lock", "Pipfile.lock", "composer.lock",
+    # Environment
     ".env", ".env.local", ".env.production",
 })
 
@@ -51,6 +65,7 @@ DEFAULT_IGNORE_EXTENSIONS: frozenset[str] = frozenset({
     ".map",
 })
 
+# Files that belong to sfc itself — always excluded from collection
 SELF_FILES: frozenset[str] = frozenset({
     "sfc.py", "sfc.pyz",
 })
@@ -59,7 +74,9 @@ COLLECTED_PREFIX: str = "collected_"
 SFC_DOT_PREFIX: str = ".sfc-"
 
 
-# ── In-app help text ────────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+#  IN-APP HELP TEXT
+# ════════════════════════════════════════════════════════════════════
 
 HELP_GLOB: str = """\
  ╭─ Glob Pattern Reference ──────────────────────────────────╮
@@ -113,6 +130,10 @@ HELP_FILTERS: str = """\
  │  Extensions:   file suffixes excluded by extension        │
  │     e.g.  .pyc, .jpg, .zip, .pdf                        │
  │                                                          │
+ │  Comment Killer (v4.0):                                  │
+ │     Settings → Strip Explanations → ON                   │
+ │     Removes docstrings + comments from .py files (AST)   │
+ │                                                          │
  │  Browse filter (/):  live substring search on paths      │
  │  Browse pattern (p): select by glob in current view      │
  │  Reset to defaults:  Settings → Ignoring → Reset         │
@@ -120,10 +141,16 @@ HELP_FILTERS: str = """\
  ╰──────────────────────────────────────────────────────────╯"""
 
 
-# ── Resolution helpers ──────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+#  RESOLUTION HELPERS
+# ════════════════════════════════════════════════════════════════════
 
 def matches_pattern(rel_path: str, name: str, pattern: str) -> bool:
-    """Return *True* if *rel_path* or *name* matches *pattern* (fnmatch)."""
+    """Return *True* if *rel_path* or *name* matches *pattern* (fnmatch).
+
+    Tries three variants so both ``*.py`` and ``src/main.py`` work
+    intuitively from any context.
+    """
     return (
         fnmatch.fnmatch(rel_path, pattern)
         or fnmatch.fnmatch(name, pattern)
@@ -157,7 +184,7 @@ def resolve_patterns(
         hit_count_before: int = len(picked)
         target: Path = root / pat
 
-        # 1) Exact file
+        # 1) Exact file match
         if target.is_file() and target not in seen:
             picked.append(target)
             seen.add(target)

@@ -1,4 +1,12 @@
-"""Persistent configuration (platform-aware) and per-project presets."""
+"""Persistent configuration (platform-aware) and per-project presets.
+
+Config file:
+  Linux/macOS  → ~/.config/sfc/cfg.setting.json
+  Windows      → %APPDATA%\\sfc\\cfg.setting.json
+
+Presets:
+  Per-project  → <project_root>/.sfc-presets.json
+"""
 
 from __future__ import annotations
 
@@ -16,7 +24,9 @@ from .patterns import (
 )
 
 
-# ── Platform config directory ───────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+#  PLATFORM CONFIG DIRECTORY
+# ════════════════════════════════════════════════════════════════════
 
 def _config_dir() -> Path:
     """``~/.config/sfc`` on POSIX, ``%APPDATA%\\sfc`` on Windows."""
@@ -36,7 +46,9 @@ def config_path() -> Path:
     return _config_dir() / "cfg.setting.json"
 
 
-# ── AppConfig dataclass ─────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+#  AppConfig DATACLASS
+# ════════════════════════════════════════════════════════════════════
 
 @dataclass
 class AppConfig:
@@ -47,6 +59,11 @@ class AppConfig:
     show_tree: bool = True
     auto_copy: bool = False
     page_size: int = 20
+
+    # ── v4.0 — AST Comment Killer ──
+    strip_explanations: bool = False
+
+    # ── Ignore lists ──
     ignore_dirs: list[str] = field(
         default_factory=lambda: sorted(DEFAULT_IGNORE_DIRS),
     )
@@ -57,7 +74,7 @@ class AppConfig:
         default_factory=lambda: sorted(DEFAULT_IGNORE_EXTENSIONS),
     )
 
-    # ── post-init validation ──
+    # ── Post-init validation ──
 
     def __post_init__(self) -> None:
         if not isinstance(self.ignore_dirs, list):
@@ -66,6 +83,8 @@ class AppConfig:
             self.ignore_files = sorted(DEFAULT_IGNORE_FILES)
         if not isinstance(self.ignore_extensions, list):
             self.ignore_extensions = sorted(DEFAULT_IGNORE_EXTENSIONS)
+        if not isinstance(self.strip_explanations, bool):
+            self.strip_explanations = False
         try:
             self.max_chars = max(1_000, int(self.max_chars))
         except (TypeError, ValueError):
@@ -75,7 +94,7 @@ class AppConfig:
         except (TypeError, ValueError):
             self.page_size = 20
 
-    # ── convenience accessors ──
+    # ── Convenience accessors ──
 
     def ignore_dirs_set(self) -> set[str]:
         return set(self.ignore_dirs)
@@ -93,7 +112,9 @@ class AppConfig:
         self.ignore_extensions = sorted(DEFAULT_IGNORE_EXTENSIONS)
 
 
-# ── Global config persistence ───────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+#  GLOBAL CONFIG PERSISTENCE
+# ════════════════════════════════════════════════════════════════════
 
 def load_config() -> AppConfig:
     """Load from disk or create defaults (auto-saves on first run)."""
@@ -121,7 +142,9 @@ def save_config(cfg: AppConfig) -> None:
     )
 
 
-# ── Per-project presets ─────────────────────────────────────────────
+# ════════════════════════════════════════════════════════════════════
+#  PER-PROJECT PRESETS
+# ════════════════════════════════════════════════════════════════════
 
 _PRESETS_FILE: str = ".sfc-presets.json"
 
@@ -132,6 +155,7 @@ def presets_file(root: Path) -> Path:
 
 
 def load_presets(root: Path) -> dict[str, list[str]]:
+    """Load presets from ``<root>/.sfc-presets.json``."""
     fp: Path = presets_file(root)
     if not fp.exists():
         return {}
@@ -143,6 +167,7 @@ def load_presets(root: Path) -> dict[str, list[str]]:
 
 
 def save_presets(data: dict[str, list[str]], root: Path) -> None:
+    """Save presets to ``<root>/.sfc-presets.json``."""
     fp: Path = presets_file(root)
     fp.write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",

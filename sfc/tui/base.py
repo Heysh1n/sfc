@@ -1,14 +1,22 @@
-"""Abstract TUI engine protocol and shared key constants.
+"""Abstract TUI engine protocol, key constants, MenuItem, and the
+generic ``menu_loop`` that all screens share.
 
 Every concrete engine (curses, win32) implements :class:`Engine` so the
 application layer (``app.py``) never touches platform-specific code.
+
+v4.0 changes:
+  - ``FOOTER_TEXT`` rendered as a persistent bottom line on every screen.
+  - Header split into *title box* (cyan) and *stats box* (dim/gray).
+  - ``menu_loop`` accounts for the fixed 2-line footer.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum, auto
-from typing import Callable, Sequence
+from typing import Callable
+
+from ..version import FOOTER_TEXT
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -31,11 +39,8 @@ class Key(Enum):
     PAGE_UP = auto()
     PAGE_DOWN = auto()
     DELETE = auto()
-    # Printable character — the actual char is stored separately
     CHAR = auto()
-    # Terminal was resized
     RESIZE = auto()
-    # Unknown / unmapped key
     UNKNOWN = auto()
 
 
@@ -77,7 +82,7 @@ class KeyEvent:
 
 
 # ════════════════════════════════════════════════════════════════════
-#  MENU ITEM (shared by all screens)
+#  MENU ITEM
 # ════════════════════════════════════════════════════════════════════
 
 class MenuItem:
@@ -134,6 +139,7 @@ class Engine(ABC):
     - Blocking key input that returns :class:`KeyEvent`
     - A simple text input prompt (single line)
     - Status / message bar at the bottom
+    - Fixed footer: ``Made with ❤️ by Heysh1n``
     """
 
     # ── Lifecycle ──
@@ -172,7 +178,7 @@ class Engine(ABC):
 
     @abstractmethod
     def draw_header(self, lines: list[str]) -> None:
-        """Draw header lines at the top of the screen."""
+        """Draw header lines at the top (title box + stats box)."""
 
     @abstractmethod
     def draw_items(
@@ -182,33 +188,21 @@ class Engine(ABC):
         offset: int,
         visible_count: int,
     ) -> None:
-        """Draw a scrollable item list.
-
-        Parameters
-        ----------
-        items
-            Full item list.
-        cursor
-            Index of the currently highlighted item.
-        offset
-            First visible item index (for scrolling).
-        visible_count
-            How many items fit on screen.
-        """
+        """Draw a scrollable item list."""
 
     @abstractmethod
     def draw_footer(self, lines: list[str]) -> None:
-        """Draw footer / status lines at the bottom."""
+        """Draw navigation hints + fixed ``Made with ❤️`` line at bottom."""
 
     @abstractmethod
     def draw_text_block(self, text: str) -> None:
-        """Render a multi-line text block (help pages, previews, etc.)."""
+        """Render a scrollable multi-line text block (help, previews, etc.)."""
 
     @abstractmethod
     def show_message(self, msg: str, wait: bool = True) -> None:
         """Show a temporary message.  If *wait*, block until key press."""
 
-    # ── High-level widgets ──
+    # ── High-level: generic menu loop ──
 
     def menu_loop(
         self,
@@ -228,21 +222,20 @@ class Engine(ABC):
         items
             Menu items (may include checkable items).
         footer
-            Footer / hint lines below the list.
+            Navigation hint lines (rendered above the fixed author footer).
         on_select
             Called on ENTER.  Return *True* to exit the loop and return
-            the selected item.  *None* / *False* to stay.
+            the selected item.
         on_check
             Called on SPACE for checkable items.
         on_key
             Called for every key event.  May return a new cursor position
-            to override default navigation.  Return *None* to use default.
+            to override default navigation.  Return *None* for default.
 
         Returns
         -------
         MenuItem | None
-            The item chosen via ENTER + *on_select* returning *True*,
-            or *None* if the user pressed ESC.
+            The item chosen, or *None* if user pressed ESC.
         """
         if not items:
             return None
@@ -256,11 +249,19 @@ class Engine(ABC):
                 cursor = i
                 break
 
+        # Footer: user hints + fixed author line
+        footer_lines: list[str] = list(footer) if footer else []
+
         while True:
             rows, cols = self.get_size()
-            header_count: int = len(title) + 1  # +1 for separator
-            footer_count: int = (len(footer) + 1) if footer else 1
-            visible: int = max(1, rows - header_count - footer_count)
+
+            # Layout math
+            # Header: title lines + 1 separator
+            header_rows: int = len(title) + 1
+            # Footer: nav hints + author line (always 1) + 1 blank
+            #   footer_lines + FOOTER_TEXT
+            footer_rows: int = len(footer_lines) + 2  # +1 author, +1 safety
+            visible: int = max(1, rows - header_rows - footer_rows)
 
             # Adjust offset to keep cursor visible
             if cursor < offset:
@@ -271,8 +272,10 @@ class Engine(ABC):
             self.clear()
             self.draw_header(title)
             self.draw_items(items, cursor, offset, visible)
-            if footer:
-                self.draw_footer(footer)
+
+            # Compose final footer: nav hints + author
+            full_footer = list(footer_lines) + [FOOTER_TEXT]
+            self.draw_footer(full_footer)
 
             ev: KeyEvent = self.get_key()
 
@@ -280,6 +283,9 @@ class Engine(ABC):
             if on_key is not None:
                 new_cur = on_key(ev, items, cursor)
                 if new_cur is not None:
+                    if new_cur == -999:
+                        # Signal: exit menu_loop for rebuild
+                        return items[cursor] if 0 <= cursor < len(items) else None
                     cursor = max(0, min(new_cur, len(items) - 1))
                     continue
 
@@ -313,7 +319,6 @@ class Engine(ABC):
                     item.checked = not item.checked
                     if on_check is not None:
                         on_check(item, cursor)
-                    # Auto-advance after toggle
                     cursor = self._move_cursor(items, cursor, +1)
 
             elif ev.key is Key.ENTER:
@@ -334,12 +339,10 @@ class Engine(ABC):
         if n == 0:
             return 0
         target: int = max(0, min(current + delta, n - 1))
-        # If landed on disabled, search in delta direction
         step: int = 1 if delta >= 0 else -1
         while 0 <= target < n and not items[target].enabled:
             target += step
         if target < 0 or target >= n:
-            # Reverse search
             target = current
         return target
 

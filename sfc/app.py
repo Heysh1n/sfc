@@ -3,30 +3,32 @@
 Handles:
 - CLI argument parsing and dispatch (non-interactive commands)
 - Interactive TUI routing (main menu → sub-screens)
-- Settings / Ignoring management
+- Settings / Ignoring management (including strip_explanations toggle)
 - Preset management
-- Update flow
+- Update flow (with .exe exit-on-success)
 - Final collect with dynamic unchecking
+
+v4.0 changes:
+  - All write_output / assemble_context calls pass ``strip_explanations``
+  - Settings screen exposes the Comment Killer toggle
+  - Update screen handles .exe graceful exit
+  - Footer always shows ``Made with ❤️ by Heysh1n``
 """
 
 from __future__ import annotations
 
 import argparse
-import fnmatch
 import sys
 from pathlib import Path
-from typing import Sequence
 
 from .version import VERSION, APP_TITLE
 from .config import AppConfig, load_config, save_config, load_presets, save_presets
 from .collector import (
     get_all_files,
     build_tree,
-    assemble_context,
     write_output,
     read_safe,
     fmt_size,
-    term_width,
 )
 from .clipboard import copy_to_clipboard, available_backend, ClipboardResult
 from .patterns import (
@@ -35,9 +37,6 @@ from .patterns import (
     HELP_GLOB,
     HELP_PRESETS,
     HELP_FILTERS,
-    DEFAULT_IGNORE_DIRS,
-    DEFAULT_IGNORE_FILES,
-    DEFAULT_IGNORE_EXTENSIONS,
 )
 from .updater import check_update, apply_update
 
@@ -54,7 +53,10 @@ def _cli_all(args: argparse.Namespace, cfg: AppConfig) -> None:
     extra = set(args.ignore) if args.ignore else None
     files = get_all_files(root, cfg, extra)
     print(f"📄 {len(files)} files")
-    created = write_output(root, files, args.output, "all", not args.no_tree, args.chars)
+    created = write_output(
+        root, files, args.output, "all",
+        not args.no_tree, args.chars, cfg.strip_explanations,
+    )
     _cli_print_created(created)
 
 
@@ -87,7 +89,10 @@ def _cli_pick(args: argparse.Namespace, cfg: AppConfig) -> None:
         print("❌ No matches")
         return
     print(f"📄 {len(picked)} files")
-    created = write_output(root, picked, args.output, "pick", not args.no_tree, args.chars)
+    created = write_output(
+        root, picked, args.output, "pick",
+        not args.no_tree, args.chars, cfg.strip_explanations,
+    )
     _cli_print_created(created)
 
 
@@ -133,8 +138,9 @@ def _cli_from(args: argparse.Namespace, cfg: AppConfig) -> None:
         print(f"❌ Not found: {lf}")
         return
     patterns = [
-        l.strip() for l in lf.read_text("utf-8").splitlines()
-        if l.strip() and not l.strip().startswith("#")
+        line.strip()
+        for line in lf.read_text("utf-8").splitlines()
+        if line.strip() and not line.strip().startswith("#")
     ]
     if not patterns:
         print("❌ Empty list")
@@ -203,6 +209,10 @@ def _build_parser(cfg: AppConfig) -> argparse.ArgumentParser:
     common.add_argument("-c", "--chars", type=int, default=cfg.max_chars)
     common.add_argument("--no-tree", action="store_true")
     common.add_argument("-i", "--ignore", nargs="*", default=[])
+    common.add_argument(
+        "--strip", action="store_true", default=cfg.strip_explanations,
+        help="Strip comments/docstrings from .py files (AST)",
+    )
 
     parser = argparse.ArgumentParser(
         prog="sfc",
@@ -211,18 +221,33 @@ def _build_parser(cfg: AppConfig) -> argparse.ArgumentParser:
     )
     parser.add_argument("-V", "--version", action="version", version=f"sfc {VERSION}")
     sub = parser.add_subparsers(dest="cmd")
+
     sub.add_parser("all", parents=[common])
+
     sp = sub.add_parser("pick", parents=[common])
     sp.add_argument("files", nargs="*")
+
     st = sub.add_parser("tree", parents=[common])
     st.add_argument("-s", "--sizes", action="store_true")
+
     sf = sub.add_parser("find", parents=[common])
     sf.add_argument("pattern")
+
     sfr = sub.add_parser("from", parents=[common])
     sfr.add_argument("list_file")
+
     spr = sub.add_parser("preset", parents=[common])
     spr.add_argument("preset_args", nargs="*")
+
     return parser
+
+
+# ════════════════════════════════════════════════════════════════════
+#  SENTINEL
+# ════════════════════════════════════════════════════════════════════
+
+class _ExitApp(Exception):
+    """Raised to cleanly exit the main menu loop."""
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -246,7 +271,6 @@ class App:
         self.rel_paths: list[str] = []
         self._refresh_files()
 
-        # Lazy-init engine
         from .tui import get_engine
         self.engine = get_engine()
 
@@ -270,13 +294,14 @@ class App:
     # ── Main Menu ──────────────────────────────────────────────────
 
     def _main_menu(self) -> None:
-        from .tui.base import MenuItem, Key
+        from .tui.base import MenuItem, Key, KeyEvent
 
         while True:
             sel_count = len(self.selected)
+
             title = [
                 f"  ━━━ 🔧 {APP_TITLE} v{VERSION} ━━━",
-                f"  📂 {self.root.name}  │  📄 {len(self.all_files)} files"
+                f"  📂 Project: {self.root.name}  │  📄 Files: {len(self.all_files)}"
                 + (f"  │  ✓ {sel_count} selected" if sel_count else ""),
             ]
 
@@ -290,10 +315,22 @@ class App:
                 MenuItem("⚙️   Settings", "settings"),
                 MenuItem("📖  Help", "help"),
                 MenuItem("🔄  Check for updates", "update"),
-                MenuItem("─" * 30, "_sep", enabled=False),
-                MenuItem(f"✅  Collect selected ({sel_count})", "collect", enabled=sel_count > 0),
-                MenuItem("👁️   Preview selected", "preview", enabled=sel_count > 0),
-                MenuItem("🗑️   Clear selection", "clear_sel", enabled=sel_count > 0),
+                MenuItem("─" * 30, "_sep1", enabled=False),
+                MenuItem(
+                    f"✅  Collect selected ({sel_count})",
+                    "collect",
+                    enabled=sel_count > 0,
+                ),
+                MenuItem(
+                    "👁️   Preview selected",
+                    "preview",
+                    enabled=sel_count > 0,
+                ),
+                MenuItem(
+                    "🗑️   Clear selection",
+                    "clear_sel",
+                    enabled=sel_count > 0,
+                ),
                 MenuItem("─" * 30, "_sep2", enabled=False),
                 MenuItem("❌  Exit", "exit"),
             ]
@@ -303,13 +340,15 @@ class App:
             def on_select(item: MenuItem, idx: int) -> bool:
                 return True
 
-            def on_key(ev: KeyEvent, items: list[MenuItem], cur: int) -> int | None:
+            def on_key(ev: KeyEvent, _items: list[MenuItem], cur: int) -> int | None:
                 if ev.key is Key.CHAR and ev.char in ("q", "Q"):
                     raise _ExitApp
                 return None
 
             try:
-                chosen = self.engine.menu_loop(title, items, footer, on_select, on_key=on_key)
+                chosen = self.engine.menu_loop(
+                    title, items, footer, on_select, on_key=on_key,
+                )
             except _ExitApp:
                 return
 
@@ -353,10 +392,12 @@ class App:
         filter_text: str = ""
 
         while True:
-            # Build filtered index list
             if filter_text:
                 ft = filter_text.lower()
-                indices = [i for i, r in enumerate(self.rel_paths) if ft in r.lower()]
+                indices = [
+                    i for i, r in enumerate(self.rel_paths)
+                    if ft in r.lower()
+                ]
             else:
                 indices = list(range(len(self.rel_paths)))
 
@@ -404,7 +445,9 @@ class App:
                 done = True
                 return True
 
-            def on_key(ev: KeyEvent, menu_items: list[MenuItem], cur: int) -> int | None:
+            def on_key(
+                ev: KeyEvent, menu_items: list[MenuItem], cur: int,
+            ) -> int | None:
                 nonlocal filter_text, done
 
                 if ev.key is Key.CHAR:
@@ -413,28 +456,32 @@ class App:
                         result = self.engine.prompt("Filter: ")
                         if result is not None:
                             filter_text = result
-                        done = True  # re-enter loop to rebuild
-                        return -999  # signal to exit menu_loop
+                        done = True
+                        return -999
                     elif ch == "a":
-                        for item in menu_items:
-                            item.checked = True
-                            self.selected.add(item.value)
+                        for it in menu_items:
+                            it.checked = True
+                            self.selected.add(it.value)
                         return cur
                     elif ch == "n":
-                        for item in menu_items:
-                            item.checked = False
-                            self.selected.discard(item.value)
+                        for it in menu_items:
+                            it.checked = False
+                            self.selected.discard(it.value)
                         return cur
                     elif ch == "p":
                         pat = self.engine.prompt("Glob pattern: ")
                         if pat:
                             count = 0
-                            for item in menu_items:
-                                if matches_pattern(item.value, Path(item.value).name, pat):
-                                    item.checked = True
-                                    self.selected.add(item.value)
+                            for it in menu_items:
+                                if matches_pattern(
+                                    it.value, Path(it.value).name, pat,
+                                ):
+                                    it.checked = True
+                                    self.selected.add(it.value)
                                     count += 1
-                            self.engine.show_message(f"+{count} selected by '{pat}'")
+                            self.engine.show_message(
+                                f"+{count} selected by '{pat}'"
+                            )
                         return cur
                     elif ch == "c":
                         filter_text = ""
@@ -454,17 +501,14 @@ class App:
                     self.selected.discard(item.value)
 
             if result is None and not done:
-                # ESC — exit browse
                 return
             if done and not filter_text and result is not None:
-                # ENTER pressed → exit browse
                 return
-            # Otherwise loop (filter changed)
 
     # ── Search ─────────────────────────────────────────────────────
 
     def _search(self) -> None:
-        from .tui.base import MenuItem
+        from .tui.base import MenuItem, Key, KeyEvent
 
         pat = self.engine.prompt("Search glob: ")
         if not pat:
@@ -497,8 +541,9 @@ class App:
             else:
                 self.selected.discard(item.value)
 
-        def on_key(ev: KeyEvent, menu_items: list[MenuItem], cur: int) -> int | None:
-            from .tui.base import Key, KeyEvent as KE
+        def on_key(
+            ev: KeyEvent, menu_items: list[MenuItem], cur: int,
+        ) -> int | None:
             if ev.key is Key.CHAR:
                 if ev.char.lower() == "a":
                     for it in menu_items:
@@ -512,9 +557,10 @@ class App:
                     return cur
             return None
 
-        self.engine.menu_loop(title, items, footer, on_check=on_check, on_key=on_key)
+        self.engine.menu_loop(
+            title, items, footer, on_check=on_check, on_key=on_key,
+        )
 
-        # Sync
         for item in items:
             if item.checked:
                 self.selected.add(item.value)
@@ -540,9 +586,13 @@ class App:
         if not patterns:
             return
 
-        picked, unmatched = resolve_patterns(self.root, patterns, self.all_files)
-        for rel in [str(f.relative_to(self.root)).replace("\\", "/") for f in picked]:
-            self.selected.add(rel)
+        picked, unmatched = resolve_patterns(
+            self.root, patterns, self.all_files,
+        )
+        for fp in picked:
+            self.selected.add(
+                str(fp.relative_to(self.root)).replace("\\", "/")
+            )
 
         msg = f"✓ {len(picked)} files added"
         if unmatched:
@@ -558,6 +608,7 @@ class App:
         created = write_output(
             self.root, self.all_files, self.cfg.output,
             "all", self.cfg.show_tree, self.cfg.max_chars,
+            self.cfg.strip_explanations,
         )
         self._offer_clipboard(created)
 
@@ -590,13 +641,17 @@ class App:
         if result is None:
             return
 
-        # Gather only checked items
         final_rels = [item.value for item in items if item.checked]
         if not final_rels:
-            self.engine.show_message("⚠️ All items unchecked — nothing to collect")
+            self.engine.show_message(
+                "⚠️ All items unchecked — nothing to collect"
+            )
             return
 
-        files = [self.root / r for r in final_rels if (self.root / r).exists()]
+        files = [
+            self.root / r for r in final_rels
+            if (self.root / r).exists()
+        ]
         if not files:
             self.engine.show_message("❌ No valid files")
             return
@@ -604,6 +659,7 @@ class App:
         created = write_output(
             self.root, files, self.cfg.output,
             "pick", self.cfg.show_tree, self.cfg.max_chars,
+            self.cfg.strip_explanations,
         )
         self._offer_clipboard(created)
 
@@ -629,9 +685,16 @@ class App:
             len(read_safe(self.root / r)) + 100
             for r in self.selected if (self.root / r).exists()
         )
-        parts_est = max(1, (est + self.cfg.max_chars - 1) // self.cfg.max_chars)
+        parts_est = max(
+            1, (est + self.cfg.max_chars - 1) // self.cfg.max_chars,
+        )
         lines.append("")
-        lines.append(f"  Total: {fmt_size(total_sz)} | ~{est:,} chars | ~{parts_est} part(s)")
+        lines.append(
+            f"  Total: {fmt_size(total_sz)} | ~{est:,} chars"
+            f" | ~{parts_est} part(s)"
+        )
+        if self.cfg.strip_explanations:
+            lines.append("  🔧 Comment Killer: ON (docstrings + comments stripped)")
 
         self.engine.draw_text_block("\n".join(lines))
 
@@ -650,18 +713,38 @@ class App:
         while True:
             tree_s = "ON" if self.cfg.show_tree else "OFF"
             copy_s = "ON" if self.cfg.auto_copy else "OFF"
+            strip_s = "ON" if self.cfg.strip_explanations else "OFF"
             clip_backend = available_backend() or "none"
 
             items = [
-                MenuItem(f"Output file:      {self.cfg.output}", "output"),
-                MenuItem(f"Max chars/part:   {self.cfg.max_chars:,}", "max_chars"),
-                MenuItem(f"Include tree:     {tree_s}", "toggle_tree"),
-                MenuItem(f"Auto clipboard:   {copy_s}", "toggle_copy"),
-                MenuItem(f"Page size:        {self.cfg.page_size}", "page_size"),
-                MenuItem(f"Clipboard:        {clip_backend}", "_clip", enabled=False),
+                MenuItem(
+                    f"Output file:        {self.cfg.output}", "output",
+                ),
+                MenuItem(
+                    f"Max chars/part:     {self.cfg.max_chars:,}", "max_chars",
+                ),
+                MenuItem(
+                    f"Include tree:       {tree_s}", "toggle_tree",
+                ),
+                MenuItem(
+                    f"Auto clipboard:     {copy_s}", "toggle_copy",
+                ),
+                MenuItem(
+                    f"Page size:          {self.cfg.page_size}", "page_size",
+                ),
+                MenuItem(
+                    f"Comment Killer:     {strip_s}", "toggle_strip",
+                ),
+                MenuItem(
+                    f"Clipboard backend:  {clip_backend}",
+                    "_clip", enabled=False,
+                ),
                 MenuItem("─" * 30, "_sep", enabled=False),
                 MenuItem("🚫  Ignoring (dirs/files/ext)", "ignoring"),
-                MenuItem(f"🔄  Refresh files  ({len(self.all_files)} indexed)", "refresh"),
+                MenuItem(
+                    f"🔄  Refresh files  ({len(self.all_files)} indexed)",
+                    "refresh",
+                ),
                 MenuItem("─" * 30, "_sep2", enabled=False),
                 MenuItem("↩   Back", "back"),
             ]
@@ -681,7 +764,9 @@ class App:
                 if val:
                     self.cfg.output = val
             elif v == "max_chars":
-                val = self.engine.prompt("Max chars: ", str(self.cfg.max_chars))
+                val = self.engine.prompt(
+                    "Max chars: ", str(self.cfg.max_chars),
+                )
                 if val:
                     try:
                         self.cfg.max_chars = max(1000, int(val))
@@ -691,8 +776,18 @@ class App:
                 self.cfg.show_tree = not self.cfg.show_tree
             elif v == "toggle_copy":
                 self.cfg.auto_copy = not self.cfg.auto_copy
+            elif v == "toggle_strip":
+                self.cfg.strip_explanations = not self.cfg.strip_explanations
+                state = "ON" if self.cfg.strip_explanations else "OFF"
+                self.engine.show_message(
+                    f"🔧 Comment Killer: {state}\n\n"
+                    "When ON, docstrings and # comments\n"
+                    "are stripped from .py files during collect."
+                )
             elif v == "page_size":
-                val = self.engine.prompt("Page size: ", str(self.cfg.page_size))
+                val = self.engine.prompt(
+                    "Page size: ", str(self.cfg.page_size),
+                )
                 if val:
                     try:
                         self.cfg.page_size = max(5, min(100, int(val)))
@@ -702,7 +797,9 @@ class App:
                 self._ignoring_menu()
             elif v == "refresh":
                 self._refresh_files()
-                self.engine.show_message(f"✓ {len(self.all_files)} files indexed")
+                self.engine.show_message(
+                    f"✓ {len(self.all_files)} files indexed"
+                )
 
     # ── Ignoring Sub-Menu ──────────────────────────────────────────
 
@@ -712,13 +809,16 @@ class App:
         while True:
             items = [
                 MenuItem(
-                    f"Ignored directories  ({len(self.cfg.ignore_dirs)})", "dirs",
+                    f"Ignored directories  ({len(self.cfg.ignore_dirs)})",
+                    "dirs",
                 ),
                 MenuItem(
-                    f"Ignored files        ({len(self.cfg.ignore_files)})", "files",
+                    f"Ignored files        ({len(self.cfg.ignore_files)})",
+                    "files",
                 ),
                 MenuItem(
-                    f"Ignored extensions   ({len(self.cfg.ignore_extensions)})", "exts",
+                    f"Ignored extensions   ({len(self.cfg.ignore_extensions)})",
+                    "exts",
                 ),
                 MenuItem("─" * 30, "_sep", enabled=False),
                 MenuItem("🔄  Reset ALL to defaults", "reset"),
@@ -738,13 +838,21 @@ class App:
 
             v = result.value
             if v == "dirs":
-                self._edit_ignore_list("Ignored Directories", self.cfg.ignore_dirs)
+                self._edit_ignore_list(
+                    "Ignored Directories", self.cfg.ignore_dirs,
+                )
             elif v == "files":
-                self._edit_ignore_list("Ignored Files", self.cfg.ignore_files)
+                self._edit_ignore_list(
+                    "Ignored Files", self.cfg.ignore_files,
+                )
             elif v == "exts":
-                self._edit_ignore_list("Ignored Extensions", self.cfg.ignore_extensions)
+                self._edit_ignore_list(
+                    "Ignored Extensions", self.cfg.ignore_extensions,
+                )
             elif v == "reset":
-                if self.engine.confirm("Reset all ignore lists to defaults?"):
+                if self.engine.confirm(
+                    "Reset all ignore lists to defaults?"
+                ):
                     self.cfg.reset_ignores()
                     save_config(self.cfg)
                     self._refresh_files()
@@ -757,14 +865,20 @@ class App:
 
         while True:
             items = [
-                MenuItem(entry, entry, checked=True) for entry in sorted(lst)
+                MenuItem(entry, entry, checked=True)
+                for entry in sorted(lst)
             ]
             items.append(MenuItem("─" * 30, "_sep", enabled=False))
             items.append(MenuItem("➕  Add new entry", "add"))
             items.append(MenuItem("↩   Back", "back"))
 
-            header = [f"  {title} ({len(lst)} entries)", "  Uncheck to remove"]
-            footer = ["  SPACE:remove  ENTER:action  a:add  ESC:back"]
+            header = [
+                f"  {title} ({len(lst)} entries)",
+                "  Uncheck to remove",
+            ]
+            footer = [
+                "  SPACE:remove  ENTER:action  a:add  ESC:back",
+            ]
 
             removed: set[str] = set()
 
@@ -774,14 +888,18 @@ class App:
                 else:
                     removed.discard(item.value)
 
-            def on_key(ev: KeyEvent, menu_items: list[MenuItem], cur: int) -> int | None:
+            def on_key(
+                ev: KeyEvent,
+                menu_items: list[MenuItem],
+                cur: int,
+            ) -> int | None:
                 if ev.key is Key.CHAR and ev.char.lower() == "a":
                     val = self.engine.prompt("Add: ")
                     if val and val.strip():
                         entry = val.strip()
                         if entry not in lst:
                             lst.append(entry)
-                    return -999  # rebuild
+                    return -999
                 return None
 
             result = self.engine.menu_loop(
@@ -791,13 +909,14 @@ class App:
                 on_key=on_key,
             )
 
-            # Apply removals
             if removed:
                 for entry in removed:
                     if entry in lst:
                         lst.remove(entry)
 
-            if result is None or (result is not None and result.value == "back"):
+            if result is None or (
+                result is not None and result.value == "back"
+            ):
                 return
 
             if result is not None and result.value == "add":
@@ -806,7 +925,6 @@ class App:
                     entry = val.strip()
                     if entry not in lst:
                         lst.append(entry)
-                # loop to rebuild
 
     # ── Presets ────────────────────────────────────────────────────
 
@@ -821,11 +939,14 @@ class App:
             for name in names:
                 pats = presets[name]
                 items.append(MenuItem(
-                    f"🔖 {name}  ({len(pats)} patterns)", f"use:{name}",
+                    f"🔖 {name}  ({len(pats)} patterns)",
+                    f"use:{name}",
                 ))
 
             if not items:
-                items.append(MenuItem("  (no presets yet)", "_empty", enabled=False))
+                items.append(MenuItem(
+                    "  (no presets yet)", "_empty", enabled=False,
+                ))
 
             items.append(MenuItem("─" * 30, "_sep", enabled=False))
             items.append(MenuItem("💾  Save selection as preset", "save"))
@@ -844,10 +965,16 @@ class App:
             v = result.value
             if v.startswith("use:"):
                 name = v[4:]
-                picked, _ = resolve_patterns(self.root, presets[name], self.all_files)
+                picked, _ = resolve_patterns(
+                    self.root, presets[name], self.all_files,
+                )
                 for fp in picked:
-                    self.selected.add(str(fp.relative_to(self.root)).replace("\\", "/"))
-                self.engine.show_message(f"✓ +{len(picked)} files from '{name}'")
+                    self.selected.add(
+                        str(fp.relative_to(self.root)).replace("\\", "/")
+                    )
+                self.engine.show_message(
+                    f"✓ +{len(picked)} files from '{name}'"
+                )
 
             elif v == "save":
                 if not self.selected:
@@ -857,7 +984,9 @@ class App:
                 if name:
                     presets[name] = sorted(self.selected)
                     save_presets(presets, self.root)
-                    self.engine.show_message(f"✓ Saved '{name}' ({len(self.selected)} files)")
+                    self.engine.show_message(
+                        f"✓ Saved '{name}' ({len(self.selected)} files)"
+                    )
 
             elif v == "delete":
                 if not names:
@@ -869,7 +998,9 @@ class App:
                     on_select=lambda item, idx: True,
                 )
                 if del_result and del_result.value in presets:
-                    if self.engine.confirm(f"Delete '{del_result.value}'?"):
+                    if self.engine.confirm(
+                        f"Delete '{del_result.value}'?"
+                    ):
                         del presets[del_result.value]
                         save_presets(presets, self.root)
                         self.engine.show_message("✓ Deleted")
@@ -885,13 +1016,16 @@ class App:
                 )
                 if exp_result and exp_result.value in presets:
                     picked, _ = resolve_patterns(
-                        self.root, presets[exp_result.value], self.all_files,
+                        self.root,
+                        presets[exp_result.value],
+                        self.all_files,
                     )
                     if picked:
                         created = write_output(
                             self.root, picked, self.cfg.output,
                             f"preset:{exp_result.value}",
                             self.cfg.show_tree, self.cfg.max_chars,
+                            self.cfg.strip_explanations,
                         )
                         self._offer_clipboard(created)
 
@@ -908,7 +1042,8 @@ class App:
         ]
         while True:
             result = self.engine.menu_loop(
-                ["  📖 Help"], items, on_select=lambda i, idx: True,
+                ["  📖 Help"], items,
+                on_select=lambda i, idx: True,
             )
             if result is None or result.value == "back":
                 return
@@ -936,7 +1071,7 @@ class App:
             return
 
         if not self.engine.confirm(
-            f"Update available: {result.current_version} → {result.remote_version}. Install?"
+            f"Update: {result.current_version} → {result.remote_version}. Install?"
         ):
             return
 
@@ -945,6 +1080,15 @@ class App:
 
         if apply_result.ok:
             self.engine.show_message(f"✅ {apply_result.message}")
+            # If the updater says to exit (Windows .exe batch workaround),
+            # we must actually terminate so the batch script can replace us.
+            if "close now" in apply_result.message.lower():
+                self.engine.show_message(
+                    "🔄 sfc will exit now for the update to complete.\n"
+                    "Please restart after a few seconds.",
+                )
+                self.engine.stop()
+                sys.exit(0)
         else:
             self.engine.show_message(f"❌ {apply_result.message}")
 
@@ -977,7 +1121,9 @@ class App:
         extra_msg: list[str],
     ) -> None:
         try:
-            text = "".join(Path(fn).read_text("utf-8") for fn, _ in created)
+            text = "".join(
+                Path(fn).read_text("utf-8") for fn, _ in created
+            )
             result: ClipboardResult = copy_to_clipboard(text)
             if result.ok:
                 extra_msg.append(f"📋 Copied via {result.backend}")
@@ -986,11 +1132,9 @@ class App:
         except Exception as exc:
             extra_msg.append(f"⚠️ {exc}")
 
-        self.engine.show_message("\n".join(extra_msg) if extra_msg else "Done")
-
-
-class _ExitApp(Exception):
-    """Sentinel raised to exit the main menu loop."""
+        self.engine.show_message(
+            "\n".join(extra_msg) if extra_msg else "Done"
+        )
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -1013,8 +1157,11 @@ def run(argv: list[str] | None = None) -> None:
     parser = _build_parser(cfg)
     args = parser.parse_args(argv)
 
+    # Apply --strip flag to cfg
+    if hasattr(args, "strip") and args.strip:
+        cfg.strip_explanations = True
+
     if not args.cmd:
-        # No subcommand but flags given → interactive with overrides
         root = Path(args.path).resolve()
         extra = set(args.ignore) if args.ignore else None
         cfg.output = args.output

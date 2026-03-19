@@ -4,16 +4,36 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sfc"
-version = "3.0.0"
+version = "4.0.0"
 description = "Smart File Collector — collect project files for AI context"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
+authors = [{name = "Heysh1n"}]
 keywords = ["file-collector", "cli", "tui", "ai", "context", "llm"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Utilities",
+]
 dependencies = []
 
 [project.scripts]
 sfc = "sfc.app:run"
+
+[project.urls]
+Homepage = "https://github.com/Heysh1n/Speecher-py"
+Repository = "https://github.com/Heysh1n/Speecher-py"
 
 [tool.setuptools.packages.find]
 include = ["sfc*"]
