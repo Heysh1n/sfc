@@ -7,6 +7,7 @@ structured text file — built specifically for feeding codebases into AI chats
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#)
+[![Version](https://img.shields.io/badge/version-4.0.0-cyan.svg)](#)
 
 ---
 
@@ -36,16 +37,18 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 
 | Feature | Description |
 |---------|-------------|
-| **Zero dependencies** | Pure Python 3.10+ stdlib. No pip install needed. |
+| **Zero dependencies** | Pure Python 3.10+ stdlib. No runtime pip dependencies needed. |
 | **Cross-platform** | Linux, macOS, Windows. Native TUI on all three. |
 | **Interactive TUI** | Arrow-key navigation, checkboxes, scrollable lists via `curses`/`msvcrt`. |
-| **Smart ignoring** | 80+ built-in ignore rules. Fully customisable in Settings. |
+| **Smart ignoring** | Built-in ignore rules. Fully customisable in Settings. |
 | **Auto-split** | Splits output into parts when exceeding character limits. |
 | **Native clipboard** | `pbcopy` · `clip.exe` · `wl-copy` · `xclip` · `xsel` — no pyperclip. |
 | **Presets** | Save & reuse file selections per project. |
-| **Self-updater** | One-click update from GitHub inside the TUI. |
+| **Self-updater** | Update raw package files, `.pyz`, and compiled binaries from GitHub. |
 | **Persistent config** | Settings saved to `~/.config/sfc/cfg.setting.json`. |
 | **Dynamic collect** | Uncheck files in the final review before generating output. |
+| **Comment Killer** | AST-based stripping of Python docstrings and `#` comments before export. |
+| **Portable zipapp** | Build `dist/sfc.pyz` with native Python `zipapp`. |
 
 ---
 
@@ -56,7 +59,7 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 ```bash
 git clone https://github.com/Heysh1n/sfc.git
 cd sfc
-python /path/to/sfc
+python -m sfc
 ```
 
 ### Linux / macOS
@@ -65,14 +68,21 @@ python /path/to/sfc
 # Run directly
 python3 -m sfc
 
-# Or build a portable single-file archive
-python3 build.py
+# Build a portable single-file archive
+make zipapp
 ./dist/sfc.pyz
 
-# Install globally
+# Or
+python3 build.py
+./dist/sfc.pyz
+```
+
+**Install globally:**
+
+```bash
 cp dist/sfc.pyz ~/.local/bin/sfc
 chmod +x ~/.local/bin/sfc
-sfc  # works from anywhere
+sfc
 ```
 
 **Clipboard (Linux only):**
@@ -90,7 +100,7 @@ sudo apt install xclip
 ```powershell
 python -m sfc
 
-# Or build
+# Build zipapp
 python build.py
 python dist\sfc.pyz
 ```
@@ -109,27 +119,28 @@ python -m sfc
 
 Opens a full-screen terminal interface:
 
-```
-  === Smart File Collector v3.0.0 ===
-  [D] my-project  |  [F] 42 files
-------------------------------------------------------------
- > [D]  Browse & Select
-   [?]  Search by pattern
-   [>]  Quick pick (paste paths)
-   [=]  Collect ALL files
-   [B]  Presets
-   [T]  View tree
-   [S]  Settings
-   [H]  Help
-   [U]  Check for updates
-  ------------------------------
-   [v]  Collect selected (0)
-   [E]  Preview selected
-   [X]  Clear selection
-  ------------------------------
-   [x]  Exit
+```text
+  ━━━ 🔧 Smart File Collector v4.0.0 ━━━
+  📂 Project: sfc  │  📄 Files: 19
+────────────────────────────────────────────────────────────
+ ▸ 📂  Browse & Select
+   🔍  Search by pattern
+   📝  Quick pick (paste paths)
+   📋  Collect ALL files
+   🔖  Presets
+   🗂️   View tree
+   ⚙️   Settings
+   📖  Help
+   🔄  Check for updates
+   ──────────────────────────────
+   ✅  Collect selected (0)
+   👁️   Preview selected
+   🗑️   Clear selection
+   ──────────────────────────────
+   ❌  Exit
 
-  Up/Down:navigate  ENTER:select  q:quit
+   ↑↓:navigate  ENTER:select  q:quit
+ Made with ❤️ by Heysh1n
 ```
 
 **Controls:**
@@ -150,6 +161,9 @@ sfc all -o context.txt
 
 # Pick specific files or patterns
 sfc pick src/main.py "src/config/*" "*.json"
+
+# Strip Python comments/docstrings during collect
+sfc all --strip
 
 # Show tree with sizes
 sfc tree -s
@@ -192,6 +206,7 @@ sfc preset list
 | `-c, --chars` | Max chars per part | `90000` |
 | `--no-tree` | Exclude tree from output | off |
 | `-i, --ignore` | Extra dirs to ignore | `[]` |
+| `--strip` | Strip docstrings/comments from `.py` files | config value |
 | `-V, --version` | Print version | — |
 
 ---
@@ -217,22 +232,45 @@ Select individual files with checkboxes:
 Before generating output, a **review screen** lets you dynamically
 uncheck files:
 
-```
-  [v] Collect — 5 files
+```text
+  ━━━ 🔧 Smart File Collector v4.0.0 ━━━
+  ✅ Collect — 5 files
   Uncheck items to exclude before collecting
-------------------------------------------------------------
- [x]  src/main.py
- [x]  src/config/settings.py
- [ ]  src/tests/test_main.py        <-- excluded
- [x]  README.md
- [x]  pyproject.toml
+────────────────────────────────────────────────────────────
+ [x] src/main.py
+ [x] src/config/settings.py
+ [ ] src/tests/test_main.py
+ [x] README.md
+ [x] pyproject.toml
 
-  SPACE:toggle  ENTER:collect  ESC:cancel
+   SPACE:toggle  ENTER:collect  ESC:cancel
+ Made with ❤️ by Heysh1n
 ```
 
 ### Settings
 
-Persistent configuration with three ignore list editors:
+Persistent configuration with editable options:
+
+```text
+  ━━━ 🔧 Smart File Collector v4.0.0 ━━━
+  ⚙️ Settings
+────────────────────────────────────────────────────────────
+ ▸ Output file:        collected_output.txt
+   Max chars/part:     90,000
+   Include tree:       ON
+   Auto clipboard:     OFF
+   Page size:          20
+   Comment Killer:     OFF
+   Clipboard backend:  xclip
+   ──────────────────────────────
+   🚫  Ignoring (dirs/files/ext)
+   🔄  Refresh files  (19 indexed)
+   ──────────────────────────────
+   ↩   Back
+
+   ↑↓:navigate  ENTER:select  q:quit
+ Made with ❤️ by Heysh1n
+```
 
 - **Settings → Ignoring → Directories** — folder names to skip
 - **Settings → Ignoring → Files** — exact filenames to skip
@@ -248,19 +286,42 @@ Config saved at:
 
 ---
 
+## 💀 Comment Killer (v4.0)
+
+`Smart File Collector` can now strip Python explanations before export.
+
+When enabled:
+
+- Module docstrings are removed
+- Class docstrings are removed
+- Function docstrings are removed
+- `#` comments are removed
+- Common pragmas are preserved:
+  - `# type:`, `# noqa`, `# pragma:`, `# pylint:`
+  - `# fmt:`, `# isort:`, `# mypy:`, `# pyright:`
+
+Implemented with `ast` + `tokenize`. **No regex is used.**
+
+Enable it via:
+
+- **TUI:** `Settings → Comment Killer`
+- **CLI:** `--strip`
+
+---
+
 ## 📄 Output Format
 
-```
+```text
 ══════════════
-📋 my-project [pick]
-📅 18.03.2026 14:39:48
+📋 sfc [pick]
+📅 19.03.2026 16:52:42
 📄 Files: 3
 ══════════════
 
 ┌────────────
 │ 🗂️  STRUCTURE
 ├────────────
-│ 📦 my-project/
+│ 📦 sfc/
 │ ├── 📂 src/
 │ │   ├── 📄 main.py
 │ │   └── 📄 utils.py
@@ -286,8 +347,8 @@ def helper():
 ═════
 ```
 
-**Auto-split:** When output exceeds the character limit (default 90K),
-files are automatically split into `_p1.txt`, `_p2.txt`, etc.
+**Auto-split:** When output exceeds the character limit, files are
+automatically split into `_p1.txt`, `_p2.txt`, etc.
 
 ---
 
@@ -317,70 +378,53 @@ Stored per-project in `.sfc-presets.json`.
 
 In TUI: **Main Menu → Check for updates**
 
-- Checks `raw.githubusercontent.com` for newer version
-- Downloads and overwrites module files atomically
-- Prompts to restart
-- No sudo required (unless installed in system dirs)
+v4.0 updater supports:
 
----
+| Format | Method |
+|--------|--------|
+| Package (`python -m sfc`) | Overwrites individual module files |
+| Zipapp (`.pyz`) | Downloads asset from GitHub Releases |
+| Windows `.exe` | Detached batch-script swaps running binary |
+| Linux/macOS binary | Atomic rename (POSIX doesn't lock executables) |
 
-## 💡 Tips for AI Workflows
-
-1. **Don't send everything.** Fixing a DB bug?
-   ```bash
-   sfc pick "src/db/*" "src/models/*"
-   ```
-
-2. **Use character limits.** Large project?
-   ```bash
-   sfc all -c 50000
-   ```
-   Feed parts sequentially: *"Here's part 1/3..."*
-
-3. **Quick Pick from AI output.** AI says "check these files"?
-   Copy the list → TUI → Quick Pick → paste → collect.
-
-4. **Combine with git:**
-   ```bash
-   git diff --name-only > changed.txt
-   sfc from changed.txt
-   ```
-
-5. **Save frequent selections:**
-   ```bash
-   sfc preset save backend "src/models/*" "src/services/*"
-   ```
+No sudo required unless installed in a protected system directory.
 
 ---
 
 ## 🏗️ Architecture
 
-```
+```text
 sfc/
-├── __init__.py          # Package marker
-├── __main__.py          # Entry point
-├── version.py           # Version constant
-├── patterns.py          # Default ignores, glob helpers
-├── config.py            # Persistent JSON config
-├── collector.py         # File scanner, tree, output
-├── clipboard.py         # Native clipboard integration
-├── updater.py           # Self-update from GitHub
-├── app.py               # CLI + TUI controller
-└── tui/
-    ├── __init__.py      # Platform detection
-    ├── base.py          # Key enum, abstract engine
-    ├── curses_tui.py    # Linux/macOS engine
-    └── win_tui.py       # Windows engine
+├── Makefile             # zipapp / win / linux / macos / check / clean
+├── build.py             # Python-native build script
+├── pyproject.toml       # Package metadata
+├── requirements-build.txt
+└── sfc/
+    ├── __init__.py      # Package marker
+    ├── __main__.py      # Entry point
+    ├── version.py       # Version + metadata constants
+    ├── patterns.py      # Default ignores, glob helpers
+    ├── config.py        # Persistent JSON config
+    ├── collector.py     # File scanner, AST comment killer, tree, output
+    ├── clipboard.py     # Native clipboard integration
+    ├── updater.py       # Self-update (package / pyz / exe / elf)
+    ├── app.py           # CLI parser + TUI controller
+    └── tui/
+        ├── __init__.py  # Platform detection
+        ├── base.py      # Key enum, abstract engine, menu_loop
+        ├── curses_tui.py # Linux/macOS engine
+        └── win_tui.py   # Windows engine
 ```
 
-**Zero** external dependencies. **Zero** circular imports.
+**Zero** runtime dependencies.
+**Zero** circular imports.
 
 ---
 
 ## 📋 Requirements
 
 - Python 3.10+
-- Terminal with at least 80×24 (for TUI)
+- Terminal with at least 80×24 for TUI
 - **Linux clipboard:** `xclip`, `xsel`, or `wl-copy`
 - **macOS clipboard:** built-in (`pbcopy`)
 - **Windows clipboard:** built-in (`clip.exe`)
@@ -389,19 +433,78 @@ sfc/
 
 ## 🔨 Building
 
+### Portable zipapp
+
 ```bash
-# Build portable .pyz archive
+make zipapp
+# or
 python build.py
+```
 
-# Output: dist/sfc.pyz
-# Run:    ./dist/sfc.pyz  or  python dist/sfc.pyz
+Output: `dist/sfc.pyz`
 
-# Clean build artifacts
+```bash
+./dist/sfc.pyz        # Linux/macOS
+python dist\sfc.pyz   # Windows
+```
+
+### PyInstaller binaries
+
+```bash
+make check    # verify prerequisites first
+make win      # Windows .exe
+make linux    # Linux ELF
+make macos    # macOS binary
+```
+
+> **Note:** PyInstaller requires Python built with `--enable-shared`.
+> GitHub Codespaces does not have this. Use `make zipapp` instead.
+
+### Clean
+
+```bash
+make clean
+# or
 python build.py clean
 ```
+
+---
+
+## 💡 Tips for AI Workflows
+
+1. **Don't send everything.**
+   ```bash
+   sfc pick "src/db/*" "src/models/*"
+   ```
+
+2. **Use character limits.**
+   ```bash
+   sfc all -c 50000
+   ```
+
+3. **Strip comments for cleaner Python context.**
+   ```bash
+   sfc all --strip
+   ```
+
+4. **Quick Pick from AI output.**
+   Copy the list → TUI → Quick Pick → paste → collect.
+
+5. **Combine with git:**
+   ```bash
+   git diff --name-only > changed.txt
+   sfc from changed.txt
+   ```
+
+6. **Save frequent selections:**
+   ```bash
+   sfc preset save backend "src/models/*" "src/services/*"
+   ```
 
 ---
 
 ## 📜 License
 
 [MIT](LICENSE) — © 2026 [Heysh1n](https://github.com/Heysh1n)
+
+Made with ❤️ by Heysh1n

@@ -1,20 +1,3 @@
-"""Top-level application controller — wires TUI, config, collector, etc.
-
-Handles:
-- CLI argument parsing and dispatch (non-interactive commands)
-- Interactive TUI routing (main menu → sub-screens)
-- Settings / Ignoring management (including strip_explanations toggle)
-- Preset management
-- Update flow (with .exe exit-on-success)
-- Final collect with dynamic unchecking
-
-v4.0 changes:
-  - All write_output / assemble_context calls pass ``strip_explanations``
-  - Settings screen exposes the Comment Killer toggle
-  - Update screen handles .exe graceful exit
-  - Footer always shows ``Made with ❤️ by Heysh1n``
-"""
-
 from __future__ import annotations
 
 import argparse

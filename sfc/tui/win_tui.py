@@ -1,13 +1,15 @@
-"""Windows TUI engine using msvcrt + ctypes Console API.
+"""Windows TUI engine using msvcrt + ANSI VT100 escape sequences.
 
-Provides the same interface as :class:`CursesEngine` but works natively
-on Windows without curses (which is not bundled on Windows Python).
-
-Uses:
-- ``msvcrt.getwch()`` for keyboard input
-- ``ctypes`` calls to ``kernel32`` for console buffer manipulation
-- Direct ``sys.stdout.write`` with ANSI escapes (Windows 10+ supports
-  Virtual Terminal Sequences when enabled).
+v4.0 layout (boxed header):
+  ╔══════════════════════════════════════════════╗
+  ║  🔧 Smart File Collector v4.0.0             ║  (cyan bold)
+  ╚══════════════════════════════════════════════╝
+  ┌──────────────────────────────────────────────┐
+  │  📂 Project: sfc  │  📄 Files: 19           │  (dim/gray)
+  └──────────────────────────────────────────────┘
+  Menu items...
+  ↑↓:navigate  ENTER:select  q:quit              (yellow)
+  Made with ❤️ by Heysh1n                          (cyan)
 """
 
 from __future__ import annotations
@@ -17,12 +19,9 @@ import ctypes.wintypes
 import msvcrt
 import os
 import sys
-from typing import TYPE_CHECKING
 
 from .base import Engine, Key, KeyEvent, MenuItem
-
-if TYPE_CHECKING:
-    pass
+from ..version import FOOTER_TEXT
 
 
 # ── Win32 constants ─────────────────────────────────────────────────
@@ -30,7 +29,6 @@ if TYPE_CHECKING:
 _ENABLE_VIRTUAL_TERMINAL_PROCESSING: int = 0x0004
 _ENABLE_PROCESSED_OUTPUT: int = 0x0001
 _STD_OUTPUT_HANDLE: int = -11
-_STD_INPUT_HANDLE: int = -10
 
 _kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
 
@@ -41,32 +39,34 @@ def _enable_ansi() -> None:
     mode = ctypes.wintypes.DWORD()
     _kernel32.GetConsoleMode(handle, ctypes.byref(mode))
     _kernel32.SetConsoleMode(
-        handle, mode.value | _ENABLE_VIRTUAL_TERMINAL_PROCESSING | _ENABLE_PROCESSED_OUTPUT,
+        handle,
+        mode.value
+        | _ENABLE_VIRTUAL_TERMINAL_PROCESSING
+        | _ENABLE_PROCESSED_OUTPUT,
     )
 
 
 # ── ANSI helpers ────────────────────────────────────────────────────
 
-_ESC: str = "\033["
+_E = "\033["
 
-_RESET: str = f"{_ESC}0m"
-_BOLD: str = f"{_ESC}1m"
-_DIM: str = f"{_ESC}2m"
-_FG_CYAN: str = f"{_ESC}36m"
-_FG_GREEN: str = f"{_ESC}32m"
-_FG_YELLOW: str = f"{_ESC}33m"
-_FG_RED: str = f"{_ESC}31m"
-_FG_WHITE: str = f"{_ESC}37m"
-_BG_CYAN: str = f"{_ESC}46m"
-_FG_BLACK: str = f"{_ESC}30m"
-_CLEAR_SCREEN: str = f"{_ESC}2J{_ESC}H"
-_HIDE_CURSOR: str = f"{_ESC}?25l"
-_SHOW_CURSOR: str = f"{_ESC}?25h"
-_CLEAR_LINE: str = f"{_ESC}2K"
+_RST = f"{_E}0m"
+_BOLD = f"{_E}1m"
+_DIM = f"{_E}2m"
+_FG_BLACK = f"{_E}30m"
+_FG_GREEN = f"{_E}32m"
+_FG_YELLOW = f"{_E}33m"
+_FG_WHITE = f"{_E}37m"
+_FG_CYAN = f"{_E}36m"
+_BG_CYAN = f"{_E}46m"
+_CLS = f"{_E}2J{_E}H"
+_HIDE_CUR = f"{_E}?25l"
+_SHOW_CUR = f"{_E}?25h"
+_CLR_LINE = f"{_E}2K"
 
 
-def _move(row: int, col: int) -> str:
-    return f"{_ESC}{row + 1};{col + 1}H"
+def _mv(row: int, col: int) -> str:
+    return f"{_E}{row + 1};{col + 1}H"
 
 
 class WinEngine(Engine):
@@ -74,6 +74,7 @@ class WinEngine(Engine):
 
     def __init__(self) -> None:
         self._started: bool = False
+        self._header_end: int = 0
 
     # ════════════════════════════════════════════════════════════════
     #  LIFECYCLE
@@ -83,13 +84,13 @@ class WinEngine(Engine):
         if self._started:
             return
         _enable_ansi()
-        self._write(_HIDE_CURSOR)
+        self._w(_HIDE_CUR)
         self._started = True
 
     def stop(self) -> None:
         if not self._started:
             return
-        self._write(_SHOW_CURSOR + _RESET)
+        self._w(_SHOW_CUR + _RST)
         self._started = False
 
     # ════════════════════════════════════════════════════════════════
@@ -102,13 +103,12 @@ class WinEngine(Engine):
         except KeyboardInterrupt:
             return KeyEvent(Key.ESCAPE)
 
-        # Special keys: first char is \x00 or \xe0
         if ch in ("\x00", "\xe0"):
             try:
                 ext: str = msvcrt.getwch()
             except KeyboardInterrupt:
                 return KeyEvent(Key.ESCAPE)
-            return self._map_extended(ext)
+            return self._map_ext(ext)
 
         o: int = ord(ch)
         if o == 27:
@@ -126,7 +126,7 @@ class WinEngine(Engine):
         return KeyEvent(Key.UNKNOWN)
 
     @staticmethod
-    def _map_extended(ch: str) -> KeyEvent:
+    def _map_ext(ch: str) -> KeyEvent:
         _MAP: dict[str, Key] = {
             "H": Key.UP,
             "P": Key.DOWN,
@@ -138,33 +138,32 @@ class WinEngine(Engine):
             "Q": Key.PAGE_DOWN,
             "S": Key.DELETE,
         }
-        key = _MAP.get(ch, Key.UNKNOWN)
-        return KeyEvent(key)
+        return KeyEvent(_MAP.get(ch, Key.UNKNOWN))
 
     def prompt(self, label: str, prefill: str = "") -> str | None:
         rows, cols = self.get_size()
-        prompt_row: int = rows - 2
+        prompt_row: int = rows - 3
         buf: list[str] = list(prefill)
 
-        self._write(_SHOW_CURSOR)
+        self._w(_SHOW_CUR)
 
         while True:
-            # Draw prompt line
             display: str = "".join(buf)
             max_d: int = cols - len(label) - 3
             if len(display) > max_d:
                 display = display[-max_d:]
-            line: str = f"{_FG_YELLOW}{label}{_RESET}{display}"
-            self._write(
-                _move(prompt_row, 0) + _CLEAR_LINE + " " + line
+            self._w(
+                _mv(prompt_row, 0)
+                + _CLR_LINE
+                + f" {_FG_YELLOW}{label}{_RST}{display}"
             )
 
             ev = self.get_key()
             if ev.key is Key.ESCAPE:
-                self._write(_HIDE_CURSOR)
+                self._w(_HIDE_CUR)
                 return None
             if ev.key is Key.ENTER:
-                self._write(_HIDE_CURSOR)
+                self._w(_HIDE_CUR)
                 return "".join(buf)
             if ev.key is Key.BACKSPACE:
                 if buf:
@@ -174,10 +173,12 @@ class WinEngine(Engine):
 
     def confirm(self, question: str) -> bool:
         rows, cols = self.get_size()
-        prompt_row = rows - 2
+        prompt_row = rows - 3
         full = f"{question} (y/n): "
-        self._write(
-            _move(prompt_row, 0) + _CLEAR_LINE + f" {_FG_YELLOW}{full}{_RESET}"
+        self._w(
+            _mv(prompt_row, 0)
+            + _CLR_LINE
+            + f" {_FG_YELLOW}{full}{_RST}"
         )
         while True:
             ev = self.get_key()
@@ -191,7 +192,7 @@ class WinEngine(Engine):
     # ════════════════════════════════════════════════════════════════
 
     def clear(self) -> None:
-        self._write(_CLEAR_SCREEN)
+        self._w(_CLS)
 
     def get_size(self) -> tuple[int, int]:
         try:
@@ -201,20 +202,71 @@ class WinEngine(Engine):
             return (25, 80)
 
     def draw_header(self, lines: list[str]) -> None:
+        """Render header with boxed title (cyan) and boxed stats (gray).
+
+        Convention:
+          lines[0] → title text → ╔═══╗ cyan bold box
+          lines[1] → stats text → ┌───┐ dim/gray box
+          lines[2:] → additional plain dim lines
+        """
         rows, cols = self.get_size()
+        box_w: int = min(cols - 4, 56)
+        row: int = 0
         out: list[str] = []
-        for i, line in enumerate(lines):
-            if i >= rows - 2:
-                break
+
+        # ── Title box (cyan bold) ──
+        if len(lines) >= 1 and lines[0].strip():
+            title_text = lines[0].strip()
+            padded = f" {title_text} ".ljust(box_w)[:box_w]
+            top = "╔" + "═" * box_w + "╗"
+            mid = "║" + padded + "║"
+            bot = "╚" + "═" * box_w + "╝"
             out.append(
-                _move(i, 0) + _CLEAR_LINE + f"{_BOLD}{_FG_CYAN}{line[:cols - 1]}{_RESET}"
+                _mv(row, 1) + _CLR_LINE + f"{_BOLD}{_FG_CYAN}{top}{_RST}"
             )
-        # Separator
-        sep_row = len(lines)
-        if sep_row < rows - 1:
-            sep = "─" * min(cols - 1, 60)
-            out.append(_move(sep_row, 0) + _CLEAR_LINE + f"{_DIM}{sep}{_RESET}")
-        self._write("".join(out))
+            row += 1
+            out.append(
+                _mv(row, 1) + _CLR_LINE + f"{_BOLD}{_FG_CYAN}{mid}{_RST}"
+            )
+            row += 1
+            out.append(
+                _mv(row, 1) + _CLR_LINE + f"{_BOLD}{_FG_CYAN}{bot}{_RST}"
+            )
+            row += 1
+
+        # ── Stats box (dim/gray) ──
+        if len(lines) >= 2 and lines[1].strip():
+            stats_text = lines[1].strip()
+            padded = f" {stats_text} ".ljust(box_w)[:box_w]
+            top = "┌" + "─" * box_w + "┐"
+            mid = "│" + padded + "│"
+            bot = "└" + "─" * box_w + "┘"
+            out.append(
+                _mv(row, 1) + _CLR_LINE + f"{_DIM}{top}{_RST}"
+            )
+            row += 1
+            out.append(
+                _mv(row, 1) + _CLR_LINE + f"{_DIM}{mid}{_RST}"
+            )
+            row += 1
+            out.append(
+                _mv(row, 1) + _CLR_LINE + f"{_DIM}{bot}{_RST}"
+            )
+            row += 1
+
+        # ── Additional lines (plain dim) ──
+        for i in range(2, len(lines)):
+            if row >= rows - 4:
+                break
+            if lines[i].strip():
+                out.append(
+                    _mv(row, 1) + _CLR_LINE
+                    + f"{_DIM}{lines[i][:cols - 3]}{_RST}"
+                )
+                row += 1
+
+        self._header_end = row
+        self._w("".join(out))
 
     def draw_items(
         self,
@@ -224,28 +276,28 @@ class WinEngine(Engine):
         visible_count: int,
     ) -> None:
         rows, cols = self.get_size()
-        start_row: int = self._find_item_start_row_win()
+        start_row: int = self._header_end
         out: list[str] = []
 
         for vi in range(visible_count):
             idx: int = offset + vi
             row: int = start_row + vi
-            if row >= rows - 2:
+            if row >= rows - 3:
                 break
             if idx >= len(items):
-                # Clear remaining visible rows
-                out.append(_move(row, 0) + _CLEAR_LINE)
+                out.append(_mv(row, 0) + _CLR_LINE)
                 continue
 
             item: MenuItem = items[idx]
             is_cur: bool = idx == cursor
 
+            # Prefix
             prefix: str
             if item.checked is not None:
                 mark: str = "✓" if item.checked else " "
                 prefix = f" [{mark}] "
             else:
-                prefix = "  "
+                prefix = "   "
 
             if is_cur:
                 prefix = " ▸" + prefix[2:]
@@ -255,43 +307,60 @@ class WinEngine(Engine):
 
             max_label: int = cols - len(prefix) - len(suffix) - 2
             if len(label) > max_label:
-                label = label[:max(0, max_label - 1)] + "…"
+                label = label[: max(0, max_label - 1)] + "…"
 
             line: str = f"{prefix}{label}{suffix}"
-            line = line[:cols - 1]
+            line = line[: cols - 1]
 
             if is_cur:
-                styled = f"{_BG_CYAN}{_FG_BLACK}{_BOLD}{line}{_RESET}"
+                styled = f"{_BG_CYAN}{_FG_BLACK}{_BOLD}{line}{_RST}"
             elif not item.enabled:
-                styled = f"{_DIM}{line}{_RESET}"
+                styled = f"{_DIM}{line}{_RST}"
             elif item.checked:
-                styled = f"{_FG_GREEN}{line}{_RESET}"
+                styled = f"{_FG_GREEN}{line}{_RST}"
             else:
                 styled = line
 
-            out.append(_move(row, 0) + _CLEAR_LINE + styled)
+            out.append(_mv(row, 0) + _CLR_LINE + styled)
 
         # Scroll indicators
         if offset > 0:
-            out.append(_move(start_row, cols - 2) + f"{_DIM}▲{_RESET}")
+            out.append(
+                _mv(start_row, cols - 2) + f"{_DIM}▲{_RST}"
+            )
         if offset + visible_count < len(items):
-            last_row = start_row + min(visible_count, len(items) - offset) - 1
-            if last_row < rows - 2:
-                out.append(_move(last_row, cols - 2) + f"{_DIM}▼{_RESET}")
+            last_row = start_row + min(
+                visible_count, len(items) - offset,
+            ) - 1
+            if last_row < rows - 3:
+                out.append(
+                    _mv(last_row, cols - 2) + f"{_DIM}▼{_RST}"
+                )
 
-        self._write("".join(out))
+        self._w("".join(out))
 
     def draw_footer(self, lines: list[str]) -> None:
+        """Render footer: nav hints (yellow) + author line (cyan)."""
         rows, cols = self.get_size()
+        total = len(lines)
+        start_row = rows - total - 1
+
         out: list[str] = []
         for i, line in enumerate(lines):
-            row = rows - len(lines) + i
-            if row < 0:
+            row = start_row + i
+            if row < 0 or row >= rows:
                 continue
-            out.append(
-                _move(row, 0) + _CLEAR_LINE + f" {_FG_YELLOW}{line[:cols - 2]}{_RESET}"
-            )
-        self._write("".join(out))
+            if i == total - 1:
+                out.append(
+                    _mv(row, 0) + _CLR_LINE
+                    + f" {_FG_CYAN}{line[:cols - 2]}{_RST}"
+                )
+            else:
+                out.append(
+                    _mv(row, 0) + _CLR_LINE
+                    + f" {_FG_YELLOW}{line[:cols - 2]}{_RST}"
+                )
+        self._w("".join(out))
 
     def draw_text_block(self, text: str) -> None:
         text_lines: list[str] = text.split("\n")
@@ -299,33 +368,47 @@ class WinEngine(Engine):
 
         while True:
             rows, cols = self.get_size()
-            visible = rows - 2
-            out: list[str] = [_CLEAR_SCREEN]
+            visible = rows - 3
+            out: list[str] = [_CLS]
 
             for i in range(visible):
                 li = offset + i
                 if li >= len(text_lines):
                     break
-                line = text_lines[li][:cols - 1]
-                out.append(_move(i, 0) + line)
+                out.append(_mv(i, 0) + text_lines[li][: cols - 1])
 
-            total_pages = max(1, (len(text_lines) + visible - 1) // visible)
+            total_pages = max(
+                1, (len(text_lines) + visible - 1) // visible,
+            )
             cur_page = (offset // visible) + 1 if visible > 0 else 1
             hint = f" ↑↓:scroll  q/ESC:back  ({cur_page}/{total_pages})"
-            out.append(_move(rows - 1, 0) + f"{_FG_YELLOW}{hint[:cols - 1]}{_RESET}")
-            self._write("".join(out))
+            out.append(
+                _mv(rows - 2, 0)
+                + f"{_FG_YELLOW}{hint[:cols - 1]}{_RST}"
+            )
+            out.append(
+                _mv(rows - 1, 0)
+                + f" {_FG_CYAN}{FOOTER_TEXT[:cols - 2]}{_RST}"
+            )
+            self._w("".join(out))
 
             ev = self.get_key()
-            if ev.key is Key.ESCAPE or (ev.key is Key.CHAR and ev.char in ("q", "Q")):
+            if ev.key is Key.ESCAPE or (
+                ev.key is Key.CHAR and ev.char in ("q", "Q")
+            ):
                 return
             if ev.key is Key.UP:
                 offset = max(0, offset - 1)
             elif ev.key is Key.DOWN:
-                offset = min(max(0, len(text_lines) - visible), offset + 1)
+                offset = min(
+                    max(0, len(text_lines) - visible), offset + 1,
+                )
             elif ev.key is Key.PAGE_UP:
                 offset = max(0, offset - visible)
             elif ev.key is Key.PAGE_DOWN:
-                offset = min(max(0, len(text_lines) - visible), offset + visible)
+                offset = min(
+                    max(0, len(text_lines) - visible), offset + visible,
+                )
             elif ev.key is Key.HOME:
                 offset = 0
             elif ev.key is Key.END:
@@ -334,30 +417,38 @@ class WinEngine(Engine):
     def show_message(self, msg: str, wait: bool = True) -> None:
         rows, cols = self.get_size()
         lines = msg.split("\n")
-        start_row = max(0, (rows - len(lines)) // 2)
-        out: list[str] = [_CLEAR_SCREEN]
+        start_row = max(0, (rows - len(lines) - 2) // 2)
+        out: list[str] = [_CLS]
+
         for i, line in enumerate(lines):
             r = start_row + i
-            if r >= rows:
+            if r >= rows - 2:
                 break
             x = max(0, (cols - len(line)) // 2)
-            out.append(_move(r, x) + f"{_BOLD}{_FG_CYAN}{line[:cols - 1]}{_RESET}")
+            out.append(
+                _mv(r, x)
+                + f"{_BOLD}{_FG_CYAN}{line[:cols - 1]}{_RST}"
+            )
+
+        out.append(
+            _mv(rows - 1, 0)
+            + f" {_FG_CYAN}{FOOTER_TEXT[:cols - 2]}{_RST}"
+        )
+
         if wait:
-            out.append(_move(rows - 1, 1) + f"{_DIM}Press any key...{_RESET}")
-        self._write("".join(out))
+            out.append(
+                _mv(rows - 2, 1)
+                + f"{_DIM}Press any key...{_RST}"
+            )
+        self._w("".join(out))
         if wait:
             self.get_key()
 
     # ════════════════════════════════════════════════════════════════
-    #  INTERNAL HELPERS
+    #  INTERNAL
     # ════════════════════════════════════════════════════════════════
 
     @staticmethod
-    def _write(s: str) -> None:
+    def _w(s: str) -> None:
         sys.stdout.write(s)
         sys.stdout.flush()
-
-    @staticmethod
-    def _find_item_start_row_win() -> int:
-        """Header is typically 3–4 lines + 1 separator."""
-        return 4

@@ -213,57 +213,36 @@ class Engine(ABC):
         on_check: Callable[[MenuItem, int], None] | None = None,
         on_key: Callable[[KeyEvent, list[MenuItem], int], int | None] | None = None,
     ) -> MenuItem | None:
-        """Generic interactive menu loop.
-
-        Parameters
-        ----------
-        title
-            Header lines rendered above the list.
-        items
-            Menu items (may include checkable items).
-        footer
-            Navigation hint lines (rendered above the fixed author footer).
-        on_select
-            Called on ENTER.  Return *True* to exit the loop and return
-            the selected item.
-        on_check
-            Called on SPACE for checkable items.
-        on_key
-            Called for every key event.  May return a new cursor position
-            to override default navigation.  Return *None* for default.
-
-        Returns
-        -------
-        MenuItem | None
-            The item chosen, or *None* if user pressed ESC.
-        """
         if not items:
             return None
 
         cursor: int = 0
         offset: int = 0
 
-        # Find first enabled item
         for i, item in enumerate(items):
             if item.enabled:
                 cursor = i
                 break
 
-        # Footer: user hints + fixed author line
         footer_lines: list[str] = list(footer) if footer else []
 
         while True:
             rows, cols = self.get_size()
 
-            # Layout math
-            # Header: title lines + 1 separator
-            header_rows: int = len(title) + 1
-            # Footer: nav hints + author line (always 1) + 1 blank
-            #   footer_lines + FOOTER_TEXT
-            footer_rows: int = len(footer_lines) + 2  # +1 author, +1 safety
+            # Header uses boxes: 3 rows per box (title + stats = 6)
+            # Extra lines beyond [0] and [1] add 1 row each
+            header_rows: int = 0
+            if len(title) >= 1 and title[0].strip():
+                header_rows += 3  # title box
+            if len(title) >= 2 and title[1].strip():
+                header_rows += 3  # stats box
+            for i in range(2, len(title)):
+                if title[i].strip():
+                    header_rows += 1
+
+            footer_rows: int = len(footer_lines) + 2
             visible: int = max(1, rows - header_rows - footer_rows)
 
-            # Adjust offset to keep cursor visible
             if cursor < offset:
                 offset = cursor
             elif cursor >= offset + visible:
@@ -273,18 +252,15 @@ class Engine(ABC):
             self.draw_header(title)
             self.draw_items(items, cursor, offset, visible)
 
-            # Compose final footer: nav hints + author
             full_footer = list(footer_lines) + [FOOTER_TEXT]
             self.draw_footer(full_footer)
 
             ev: KeyEvent = self.get_key()
 
-            # Let caller intercept any key
             if on_key is not None:
                 new_cur = on_key(ev, items, cursor)
                 if new_cur is not None:
                     if new_cur == -999:
-                        # Signal: exit menu_loop for rebuild
                         return items[cursor] if 0 <= cursor < len(items) else None
                     cursor = max(0, min(new_cur, len(items) - 1))
                     continue
