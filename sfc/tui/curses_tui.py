@@ -1,15 +1,9 @@
 """Curses-based TUI engine for POSIX systems (Linux / macOS).
 
-v4.0 layout:
-  ╔══════════════════════════════════════════════╗
-  ║  🔧 Smart File Collector v4.0.0             ║  (cyan bold)
-  ╚══════════════════════════════════════════════╝
-  ┌──────────────────────────────────────────────┐
-  │  📂 Project: sfc  │  📄 Files: 19           │  (dim/gray)
-  └──────────────────────────────────────────────┘
-  Menu items...
-  ↑↓:navigate  ENTER:select  q:quit              (yellow)
-  Made with ❤️ by Heysh1n                          (cyan)
+v4.0.1 fixes:
+  - Boxed header with display-width-aware padding (no right-border drift)
+  - Entire panel dynamically centered in the terminal
+  - All emoji measured via ``display_width()`` from ``base.py``
 """
 
 from __future__ import annotations
@@ -18,11 +12,18 @@ import curses
 import locale
 import os
 
-from .base import Engine, Key, KeyEvent, MenuItem
-from ..version import FOOTER_TEXT
+from .base import (
+    Engine,
+    Key,
+    KeyEvent,
+    MenuItem,
+    FOOTER_TEXT,
+    PANEL_MAX_INNER,
+    display_width,
+    pad_right,
+    truncate_to_width,
+)
 
-
-# ── Color pair IDs ──────────────────────────────────────────────────
 
 _CP_NORMAL: int = 0
 _CP_TITLE: int = 1
@@ -36,12 +37,25 @@ _CP_AUTHOR: int = 8
 
 
 class CursesEngine(Engine):
-    """Concrete TUI engine backed by stdlib ``curses``."""
 
     def __init__(self) -> None:
         self._scr: curses.window | None = None
         self._started: bool = False
-        self._header_end: int = 0  # row where items start
+        self._margin: int = 0
+        self._panel_w: int = 58
+        self._inner_w: int = 56
+        self._header_end: int = 0
+
+    # ════════════════════════════════════════════════════════════════
+    #  LAYOUT
+    # ════════════════════════════════════════════════════════════════
+
+    def _calc_layout(self) -> None:
+        """Recalculate centering margins based on current terminal size."""
+        _, cols = self.get_size()
+        self._inner_w = min(cols - 4, PANEL_MAX_INNER)
+        self._panel_w = self._inner_w + 2  # box borders
+        self._margin = max(0, (cols - self._panel_w) // 2)
 
     # ════════════════════════════════════════════════════════════════
     #  LIFECYCLE
@@ -50,12 +64,10 @@ class CursesEngine(Engine):
     def start(self) -> None:
         if self._started:
             return
-
         try:
             locale.setlocale(locale.LC_ALL, "")
         except locale.Error:
             pass
-
         os.environ.setdefault("ESCDELAY", "25")
 
         self._scr = curses.initscr()
@@ -99,36 +111,29 @@ class CursesEngine(Engine):
                 pass
 
     # ════════════════════════════════════════════════════════════════
-    #  SAFE STRING HELPERS
+    #  SAFE WRITE
     # ════════════════════════════════════════════════════════════════
 
-    def _safe(
-        self,
-        row: int,
-        col: int,
-        text: str,
-        attr: int = 0,
-    ) -> None:
-        """Write string safely — clips to terminal, catches errors."""
+    def _safe(self, row: int, col: int, text: str, attr: int = 0) -> None:
+        """Write *text* at *(row, col)*, truncated to display width."""
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
         if row < 0 or row >= rows or col < 0 or col >= cols:
             return
-        max_len = cols - col - 1
-        if max_len <= 0:
+        avail = cols - col - 1
+        if avail <= 0:
             return
-        text = text[:max_len]
+        text = truncate_to_width(text, avail)
         try:
             self._scr.addstr(row, col, text, attr)
         except curses.error:
-            cleaned = self._ascii_fallback(text)
+            cleaned = self._ascii_fallback(text)[:avail]
             try:
-                self._scr.addstr(row, col, cleaned[:max_len], attr)
+                self._scr.addstr(row, col, cleaned, attr)
             except curses.error:
                 pass
 
     def _ascii_fallback(self, text: str) -> str:
-        """Replace emoji / special chars with ASCII equivalents."""
         _MAP = {
             "📂": "[D]", "📄": "[F]", "📦": "[P]", "📋": "[=]",
             "📅": "[d]", "🔧": "[*]", "🔍": "[?]", "📝": "[>]",
@@ -138,8 +143,8 @@ class CursesEngine(Engine):
             "🗑": "[X]", "📤": "[^]", "🚫": "[!]",
             "━": "=", "─": "-", "│": "|", "┌": "+", "┐": "+",
             "└": "+", "┘": "+", "├": "+", "┤": "+",
-            "╔": "+", "╗": "+", "╚": "+", "╝": "+", "═": "=",
-            "║": "|",
+            "╔": "+", "╗": "+", "╚": "+", "╝": "+",
+            "═": "=", "║": "|",
             "▸": ">", "▲": "^", "▼": "v",
             "✓": "x", "✗": "-",
             "❤️": "<3", "❤": "<3",
@@ -149,11 +154,46 @@ class CursesEngine(Engine):
         return text.encode("ascii", errors="replace").decode("ascii")
 
     def _clear_row(self, row: int) -> None:
-        """Blank out an entire row."""
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
         if 0 <= row < rows:
-            self._safe(row, 0, " " * (cols - 1))
+            try:
+                self._scr.move(row, 0)
+                self._scr.clrtoeol()
+            except curses.error:
+                pass
+
+    # ════════════════════════════════════════════════════════════════
+    #  BOX HELPERS (display-width-aware)
+    # ════════════════════════════════════════════════════════════════
+
+    def _draw_box_line(
+        self,
+        row: int,
+        left: str,
+        fill: str,
+        right: str,
+        content: str,
+        attr: int,
+    ) -> None:
+        """Render a single box row: ``left + padded_content + right``.
+
+        *content* is padded/truncated to exactly ``self._inner_w`` display
+        cells using :func:`display_width`.
+        """
+        iw = self._inner_w
+        mg = self._margin
+
+        if content == "":
+            # Border-only line (top / bottom)
+            line = left + fill * iw + right
+        else:
+            # Content line — pad with spaces to inner width
+            content = truncate_to_width(content, iw)
+            content = pad_right(content, iw)
+            line = left + content + right
+
+        self._safe(row, mg, line, attr)
 
     # ════════════════════════════════════════════════════════════════
     #  INPUT
@@ -170,7 +210,7 @@ class CursesEngine(Engine):
 
         if isinstance(ch, str):
             if len(ch) == 1:
-                o: int = ord(ch)
+                o = ord(ch)
                 if o == 27:
                     return KeyEvent(Key.ESCAPE)
                 if o in (10, 13):
@@ -184,7 +224,6 @@ class CursesEngine(Engine):
                 if 32 <= o < 127 or o > 127:
                     return KeyEvent(Key.CHAR, ch)
             return KeyEvent(Key.CHAR, ch)
-
         return self._map_special(ch)
 
     def _map_special(self, ch: int) -> KeyEvent:
@@ -194,11 +233,9 @@ class CursesEngine(Engine):
             curses.KEY_LEFT: Key.LEFT,
             curses.KEY_RIGHT: Key.RIGHT,
             curses.KEY_ENTER: Key.ENTER,
-            10: Key.ENTER,
-            13: Key.ENTER,
+            10: Key.ENTER, 13: Key.ENTER,
             curses.KEY_BACKSPACE: Key.BACKSPACE,
-            127: Key.BACKSPACE,
-            8: Key.BACKSPACE,
+            127: Key.BACKSPACE, 8: Key.BACKSPACE,
             curses.KEY_HOME: Key.HOME,
             curses.KEY_END: Key.END,
             curses.KEY_PPAGE: Key.PAGE_UP,
@@ -215,24 +252,21 @@ class CursesEngine(Engine):
     def prompt(self, label: str, prefill: str = "") -> str | None:
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
-        prompt_row: int = rows - 3
-
+        prompt_row = rows - 3
         curses.curs_set(1)
         buf: list[str] = list(prefill)
 
         while True:
-            display: str = "".join(buf)
-            max_d: int = cols - len(label) - 3
-            if len(display) > max_d:
-                display = display[-max_d:]
-
+            disp = "".join(buf)
+            max_d = cols - len(label) - 3
+            if len(disp) > max_d:
+                disp = disp[-max_d:]
             self._clear_row(prompt_row)
             self._safe(prompt_row, 1, label, curses.color_pair(_CP_NAV))
-            self._safe(prompt_row, len(label) + 1, display)
-
-            cursor_x: int = min(len(label) + 1 + len(display), cols - 1)
+            self._safe(prompt_row, len(label) + 1, disp)
+            cx = min(len(label) + 1 + len(disp), cols - 1)
             try:
-                self._scr.move(prompt_row, cursor_x)
+                self._scr.move(prompt_row, cx)
             except curses.error:
                 pass
             self._scr.refresh()
@@ -272,12 +306,11 @@ class CursesEngine(Engine):
     def confirm(self, question: str) -> bool:
         assert self._scr is not None
         rows, cols = self._scr.getmaxyx()
-        prompt_row = rows - 3
+        r = rows - 3
         full = f"{question} (y/n): "
-        self._clear_row(prompt_row)
-        self._safe(prompt_row, 1, full, curses.color_pair(_CP_NAV))
+        self._clear_row(r)
+        self._safe(r, 1, full, curses.color_pair(_CP_NAV))
         self._scr.refresh()
-
         while True:
             ev = self.get_key()
             if ev.key is Key.CHAR and ev.char.lower() in ("y", "n"):
@@ -298,49 +331,46 @@ class CursesEngine(Engine):
         return self._scr.getmaxyx()
 
     def draw_header(self, lines: list[str]) -> None:
-        """Render header with boxed title (cyan) and boxed stats (gray).
+        """Render boxed, centered header.
 
-        Convention:
-          lines[0] → title text → drawn inside ╔═══╗ cyan box
-          lines[1] → stats text → drawn inside ┌───┐ gray box
-          lines[2:] → additional lines (plain dim)
+        lines[0] → title → ``╔═══╗`` cyan bold box
+        lines[1] → stats → ``┌───┐`` dim/gray box
+        lines[2:] → additional dim lines
         """
         assert self._scr is not None
-        rows, cols = self._scr.getmaxyx()
-        box_w: int = min(cols - 4, 56)
-        row: int = 0
+        self._calc_layout()
+        rows, _ = self.get_size()
+        row = 0
 
-        attr_title = curses.color_pair(_CP_TITLE) | curses.A_BOLD
-        attr_stats = curses.color_pair(_CP_DIM)
+        attr_t = curses.color_pair(_CP_TITLE) | curses.A_BOLD
+        attr_s = curses.color_pair(_CP_DIM)
 
-        # ── Title box (cyan) ──
+        # ── Title box ──
         if len(lines) >= 1 and lines[0].strip():
-            title_text = lines[0].strip()
-            padded = f" {title_text} ".ljust(box_w)[:box_w]
-            self._safe(row, 1, "╔" + "═" * box_w + "╗", attr_title)
+            txt = f" {lines[0].strip()} "
+            self._draw_box_line(row, "╔", "═", "╗", "", attr_t)
             row += 1
-            self._safe(row, 1, "║" + padded + "║", attr_title)
+            self._draw_box_line(row, "║", " ", "║", txt, attr_t)
             row += 1
-            self._safe(row, 1, "╚" + "═" * box_w + "╝", attr_title)
+            self._draw_box_line(row, "╚", "═", "╝", "", attr_t)
             row += 1
 
-        # ── Stats box (gray) ──
+        # ── Stats box ──
         if len(lines) >= 2 and lines[1].strip():
-            stats_text = lines[1].strip()
-            padded = f" {stats_text} ".ljust(box_w)[:box_w]
-            self._safe(row, 1, "┌" + "─" * box_w + "┐", attr_stats)
+            txt = f" {lines[1].strip()} "
+            self._draw_box_line(row, "┌", "─", "┐", "", attr_s)
             row += 1
-            self._safe(row, 1, "│" + padded + "│", attr_stats)
+            self._draw_box_line(row, "│", " ", "│", txt, attr_s)
             row += 1
-            self._safe(row, 1, "└" + "─" * box_w + "┘", attr_stats)
+            self._draw_box_line(row, "└", "─", "┘", "", attr_s)
             row += 1
 
-        # ── Additional header lines (plain) ──
+        # ── Extra lines ──
         for i in range(2, len(lines)):
             if row >= rows - 4:
                 break
             if lines[i].strip():
-                self._safe(row, 1, lines[i], attr_stats)
+                self._safe(row, self._margin, lines[i], attr_s)
                 row += 1
 
         self._header_end = row
@@ -354,41 +384,45 @@ class CursesEngine(Engine):
         visible_count: int,
     ) -> None:
         assert self._scr is not None
-        rows, cols = self._scr.getmaxyx()
-        start_row: int = self._header_end
+        self._calc_layout()
+        rows, _ = self.get_size()
+        start = self._header_end
+        mg = self._margin
+        pw = self._panel_w
 
         for vi in range(visible_count):
-            idx: int = offset + vi
-            row: int = start_row + vi
+            idx = offset + vi
+            row = start + vi
             if row >= rows - 3:
                 break
             if idx >= len(items):
                 break
 
-            item: MenuItem = items[idx]
-            is_cur: bool = idx == cursor
+            item = items[idx]
+            is_cur = idx == cursor
 
-            # Build prefix
-            prefix: str
+            # ── Prefix ──
             if item.checked is not None:
-                mark: str = "x" if item.checked else " "
+                mark = "x" if item.checked else " "
                 prefix = f" [{mark}] "
             else:
                 prefix = "   "
-
             if is_cur:
                 prefix = " ▸" + prefix[2:]
 
-            label: str = item.label
-            suffix: str = f"  {item.suffix}" if item.suffix else ""
+            label = item.label
+            suffix = f"  {item.suffix}" if item.suffix else ""
 
-            max_label: int = cols - len(prefix) - len(suffix) - 2
-            if max_label > 0 and len(label) > max_label:
-                label = label[: max_label - 1] + "~"
+            # ── Width-aware truncation ──
+            pw_dw = display_width(prefix)
+            sw_dw = display_width(suffix)
+            max_label = pw - pw_dw - sw_dw - 1
+            if display_width(label) > max_label:
+                label = truncate_to_width(label, max(0, max_label - 1)) + "~"
 
-            line: str = f"{prefix}{label}{suffix}"
+            line = f"{prefix}{label}{suffix}"
 
-            # Choose attribute
+            # ── Attribute ──
             if is_cur:
                 attr = curses.color_pair(_CP_CURSOR) | curses.A_BOLD
             elif not item.enabled:
@@ -399,32 +433,26 @@ class CursesEngine(Engine):
                 attr = curses.color_pair(_CP_NORMAL)
 
             self._clear_row(row)
-            self._safe(row, 0, line, attr)
+            self._safe(row, mg, line, attr)
 
-        # Scroll indicators
+        # ── Scroll indicators ──
+        ind_col = mg + pw - 1
         if offset > 0:
-            self._safe(start_row, cols - 2, "▲", curses.color_pair(_CP_DIM))
-        total_below = len(items) - (offset + visible_count)
-        if total_below > 0:
-            last_vis = start_row + min(visible_count, len(items) - offset) - 1
-            if last_vis < rows - 3:
-                self._safe(
-                    last_vis, cols - 2, "▼", curses.color_pair(_CP_DIM),
-                )
+            self._safe(start, ind_col, "▲", curses.color_pair(_CP_DIM))
+        if offset + visible_count < len(items):
+            last = start + min(visible_count, len(items) - offset) - 1
+            if last < rows - 3:
+                self._safe(last, ind_col, "▼", curses.color_pair(_CP_DIM))
 
         self._scr.refresh()
 
     def draw_footer(self, lines: list[str]) -> None:
-        """Render footer lines at the bottom.
-
-        Last element = ``FOOTER_TEXT`` (cyan).
-        All preceding lines = navigation hints (yellow).
-        """
         assert self._scr is not None
-        rows, cols = self._scr.getmaxyx()
-
+        self._calc_layout()
+        rows, _ = self.get_size()
         total = len(lines)
         start_row = rows - total - 1
+        mg = self._margin
 
         for i, line in enumerate(lines):
             row = start_row + i
@@ -432,18 +460,15 @@ class CursesEngine(Engine):
                 continue
             self._clear_row(row)
             if i == total - 1:
-                # Author line — cyan
-                self._safe(row, 1, line, curses.color_pair(_CP_AUTHOR))
+                self._safe(row, mg, line, curses.color_pair(_CP_AUTHOR))
             else:
-                # Nav hints — yellow
-                self._safe(row, 1, line, curses.color_pair(_CP_NAV))
-
+                self._safe(row, mg, line, curses.color_pair(_CP_NAV))
         self._scr.refresh()
 
     def draw_text_block(self, text: str) -> None:
         assert self._scr is not None
-        text_lines: list[str] = text.split("\n")
-        offset: int = 0
+        text_lines = text.split("\n")
+        offset = 0
 
         while True:
             rows, cols = self._scr.getmaxyx()
@@ -454,15 +479,11 @@ class CursesEngine(Engine):
                 li = offset + i
                 if li >= len(text_lines):
                     break
-                self._safe(
-                    i, 0, text_lines[li], curses.color_pair(_CP_NORMAL),
-                )
+                self._safe(i, 0, text_lines[li])
 
-            total_pages = max(
-                1, (len(text_lines) + visible - 1) // visible,
-            )
-            cur_page = (offset // visible) + 1 if visible > 0 else 1
-            hint = f" ↑↓:scroll  q/ESC:back  ({cur_page}/{total_pages})"
+            tp = max(1, (len(text_lines) + visible - 1) // visible)
+            cp = (offset // visible) + 1 if visible > 0 else 1
+            hint = f" ↑↓:scroll  q/ESC:back  ({cp}/{tp})"
             self._safe(rows - 2, 0, hint, curses.color_pair(_CP_NAV))
             self._safe(rows - 1, 1, FOOTER_TEXT, curses.color_pair(_CP_AUTHOR))
             self._scr.refresh()
@@ -475,9 +496,7 @@ class CursesEngine(Engine):
             if ev.key is Key.UP:
                 offset = max(0, offset - 1)
             elif ev.key is Key.DOWN:
-                offset = min(
-                    max(0, len(text_lines) - visible), offset + 1,
-                )
+                offset = min(max(0, len(text_lines) - visible), offset + 1)
             elif ev.key is Key.PAGE_UP:
                 offset = max(0, offset - visible)
             elif ev.key is Key.PAGE_DOWN:
@@ -497,22 +516,17 @@ class CursesEngine(Engine):
         lines = msg.split("\n")
         start_row = max(0, (rows - len(lines) - 2) // 2)
         self._scr.erase()
-
         attr = curses.color_pair(_CP_TITLE) | curses.A_BOLD
         for i, line in enumerate(lines):
             r = start_row + i
             if r >= rows - 2:
                 break
-            x = max(0, (cols - len(line)) // 2)
+            dw = display_width(line)
+            x = max(0, (cols - dw) // 2)
             self._safe(r, x, line, attr)
-
         self._safe(rows - 1, 1, FOOTER_TEXT, curses.color_pair(_CP_AUTHOR))
-
         if wait:
-            self._safe(
-                rows - 2, 1, "Press any key...",
-                curses.color_pair(_CP_DIM),
-            )
+            self._safe(rows - 2, 1, "Press any key...", curses.color_pair(_CP_DIM))
         self._scr.refresh()
         if wait:
             self.get_key()

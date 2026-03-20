@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VERSION: str = "4.1.0"
+VERSION: str = "4.2.0"
 APP_NAME: str = "SFC"
 APP_TITLE: str = "Smart File Collector"
 AUTHOR: str = "Heysh1n"
