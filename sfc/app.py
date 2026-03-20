@@ -283,7 +283,7 @@ class App:
             sel_count = len(self.selected)
 
             title = [
-                f"  ━━━ 🔧 {APP_TITLE} v{VERSION} ━━━",
+                f"      🔧 {APP_TITLE} v{VERSION} ",
                 f"  📂 Project: {self.root.name}  │  📄 Files: {len(self.all_files)}"
                 + (f"  │  ✓ {sel_count} selected" if sel_count else ""),
             ]
