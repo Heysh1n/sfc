@@ -59,7 +59,7 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 ### One-line Install (Linux / macOS)
 
 ```bash
-sh (curl -sL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh)
+bash <(curl -sL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh)
 
 ```
 
