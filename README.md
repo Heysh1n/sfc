@@ -59,7 +59,7 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 ### One-line Install (Linux / macOS)
 
 ```bash
-bash <(curl -sL [https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh](https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh))
+sh (curl -sL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh)
 
 ```
 
@@ -68,7 +68,7 @@ The installer fetches the latest GitHub Release from `Heysh1n/sfc`, parses the `
 ### From Source
 
 ```bash
-git clone [https://github.com/Heysh1n/sfc.git](https://github.com/Heysh1n/sfc.git)
+git clone https://github.com/Heysh1n/sfc.git
 cd sfc
 python3 -m sfc
 
