@@ -1,30 +1,39 @@
-"""Entry point for ``python -m sfc`` and zipapp execution."""
+"""Single entry point for ``python -m sfc`` and zipapp execution."""
 
 from __future__ import annotations
 
-import sys
 import os
+import sys
+import types
+
+
+def _ensure_package() -> None:
+    """Expose archive-root modules as the ``sfc`` package when needed."""
+    if __package__ == "sfc":
+        return
+
+    package_root = os.path.dirname(os.path.abspath(__file__))
+    if "sfc" not in sys.modules:
+        package = types.ModuleType("sfc")
+        package.__file__ = os.path.join(package_root, "__init__.py")
+        package.__package__ = "sfc"
+        package.__path__ = [package_root]  # type: ignore[attr-defined]
+        sys.modules["sfc"] = package
 
 
 def main() -> None:
-    """Bootstrap and run sfc."""
-    try:
-        from .app import run
-    except ImportError:
-        # Zipapp direct execution — relative imports unavailable.
-        # The zipapp staging layout has sfc/ as a subdirectory.
-        _here = os.path.dirname(os.path.abspath(__file__))
-        if _here not in sys.path:
-            sys.path.insert(0, _here)
-        from sfc.app import run  # type: ignore[no-redef]
+    """Run the CLI/TUI application."""
+    _ensure_package()
+
+    from sfc.app import run
 
     try:
         run(sys.argv[1:])
     except KeyboardInterrupt:
-        print("\n👋 Interrupted", file=sys.stderr)
+        print("\nInterrupted", file=sys.stderr)
         sys.exit(130)
     except Exception as exc:
-        print(f"\n❌ Fatal error: {exc}", file=sys.stderr)
+        print(f"\nFatal error: {exc}", file=sys.stderr)
         if "--debug" in sys.argv:
             import traceback
             traceback.print_exc()

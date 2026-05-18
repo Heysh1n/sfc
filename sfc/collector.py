@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .config import AppConfig
+    from sfc.config import AppConfig
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -34,11 +34,50 @@ def term_width() -> int:
 
 def fmt_size(n: int) -> str:
     """Human-readable byte size."""
+    if n >= 1_073_741_824:
+        return f"{n / 1_073_741_824:.1f}G"
     if n >= 1_048_576:
         return f"{n / 1_048_576:.1f}M"
     if n >= 1_024:
         return f"{n / 1_024:.1f}K"
     return f"{n}B"
+
+
+DEPENDENCY_DIRS: tuple[str, ...] = (
+    "node_modules", "venv", ".venv", "target", "build",
+)
+
+
+def _sum_files_rglob(root: Path) -> int:
+    """Sum file sizes below *root* using ``Path.rglob``."""
+    total: int = 0
+    try:
+        for item in root.rglob("*"):
+            try:
+                if item.is_file():
+                    total += item.stat().st_size
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return total
+
+
+def project_size_report(root: Path) -> tuple[int, list[tuple[str, int, float]]]:
+    """Return total project size and first-level dependency directory sizes."""
+    root = root.resolve()
+    total = _sum_files_rglob(root)
+    dependencies: list[tuple[str, int, float]] = []
+
+    for name in DEPENDENCY_DIRS:
+        dep = root / name
+        if not dep.is_dir():
+            continue
+        size = _sum_files_rglob(dep)
+        percent = (size / total * 100.0) if total else 0.0
+        dependencies.append((name, size, percent))
+
+    return total, dependencies
 
 
 def read_safe(fp: Path) -> str:
@@ -235,7 +274,7 @@ def strip_python_explanations(source: str) -> str:
 
 def _is_self_file(name: str) -> bool:
     """Files belonging to sfc itself — always skip."""
-    from .patterns import SELF_FILES, COLLECTED_PREFIX, SFC_DOT_PREFIX
+    from sfc.patterns import SELF_FILES, COLLECTED_PREFIX, SFC_DOT_PREFIX
 
     return (
         name in SELF_FILES
@@ -319,10 +358,127 @@ def read_file_content(fp: Path, strip: bool = False) -> str:
 #  TREE RENDERING
 # ════════════════════════════════════════════════════════════════════
 
+def _count_nested_entries(root: Path) -> tuple[int, int]:
+    """Count nested folders and files below *root* using ``Path.rglob``."""
+    folders: int = 0
+    files: int = 0
+
+    try:
+        for item in root.rglob("*"):
+            try:
+                if item.is_dir():
+                    folders += 1
+                elif item.is_file():
+                    files += 1
+            except OSError:
+                continue
+    except OSError:
+        pass
+
+    return folders, files
+
+
+def _limited_dir_label(path: Path) -> str:
+    folders, files = _count_nested_entries(path)
+    if folders == 0 and files == 0:
+        return f"📂 {path.name}/ (empty)"
+    return f"📂 {path.name}/ (+{folders} folders | +{files} files)"
+
+
+def _tree_ignore_sets(
+    cfg: AppConfig | None,
+    extra_ignore: set[str] | None,
+) -> tuple[set[str], set[str], set[str]]:
+    ignore_dirs: set[str] = cfg.ignore_dirs_set() if cfg else set()
+    if extra_ignore:
+        ignore_dirs |= extra_ignore
+    ignore_files: set[str] = cfg.ignore_files_set() if cfg else set()
+    ignore_ext: set[str] = cfg.ignore_ext_set() if cfg else set()
+    return ignore_dirs, ignore_files, ignore_ext
+
+
+def _visible_tree_children(
+    directory: Path,
+    cfg: AppConfig | None,
+    extra_ignore: set[str] | None,
+) -> list[tuple[Path, bool]]:
+    ignore_dirs, ignore_files, ignore_ext = _tree_ignore_sets(cfg, extra_ignore)
+    children: list[tuple[Path, bool]] = []
+
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return children
+
+    for entry in entries:
+        try:
+            if entry.is_dir() and not entry.is_symlink():
+                if entry.name not in ignore_dirs:
+                    children.append((entry, True))
+            elif entry.is_file():
+                if entry.name in ignore_files:
+                    continue
+                if _is_self_file(entry.name):
+                    continue
+                if entry.suffix.lower() in ignore_ext:
+                    continue
+                children.append((entry, False))
+        except OSError:
+            continue
+
+    children.sort(key=lambda x: (not x[1], x[0].name.lower()))
+    return children
+
+
+def _build_limited_tree(
+    root: Path,
+    cfg: AppConfig | None,
+    extra_ignore: set[str] | None,
+    sizes: bool,
+    level: int,
+) -> str:
+    root = root.resolve()
+    lines: list[str] = [f"📦 {root.name}/"]
+
+    if level <= 0:
+        folders, files = _count_nested_entries(root)
+        if folders == 0 and files == 0:
+            return f"{lines[0]} (empty)"
+        return f"{lines[0]} (+{folders} folders | +{files} files)"
+
+    def _render(directory: Path, prefix: str, depth: int) -> None:
+        items = _visible_tree_children(directory, cfg, extra_ignore)
+        for idx, (child, is_dir) in enumerate(items):
+            is_last: bool = idx == len(items) - 1
+            connector: str = "└── " if is_last else "├── "
+            child_prefix: str = prefix + ("    " if is_last else "│   ")
+
+            if is_dir:
+                if depth + 1 >= level:
+                    lines.append(f"{prefix}{connector}{_limited_dir_label(child)}")
+                    continue
+                lines.append(f"{prefix}{connector}📂 {child.name}/")
+                _render(child, child_prefix, depth + 1)
+            else:
+                suffix: str = ""
+                if sizes:
+                    try:
+                        suffix = f"  ({fmt_size(child.stat().st_size)})"
+                    except OSError:
+                        suffix = "  (?)"
+                lines.append(f"{prefix}{connector}📄 {child.name}{suffix}")
+
+    _render(root, "", 0)
+    return "\n".join(lines)
+
+
 def build_tree(
     root: Path,
     files: list[Path],
     sizes: bool = False,
+    level: int | None = None,
+    cfg: AppConfig | None = None,
+    extra_ignore: set[str] | None = None,
 ) -> str:
     """Build a visual ASCII tree string from a flat list of files.
 
@@ -330,6 +486,9 @@ def build_tree(
     (``├──`` / ``└──``) so the resulting text is unambiguous when pasted
     into an LLM context window.
     """
+    if level is not None:
+        return _build_limited_tree(root, cfg, extra_ignore, sizes, level)
+
     root = root.resolve()
     lines: list[str] = [f"📦 {root.name}/"]
 

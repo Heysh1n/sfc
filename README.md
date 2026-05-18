@@ -7,7 +7,7 @@ structured text file — built specifically for feeding codebases into AI chats
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#)
-[![Version](https://img.shields.io/badge/version-4.0.0-cyan.svg)](#)
+[![Version](https://img.shields.io/badge/version-4.7.0-cyan.svg)](#)
 
 ---
 
@@ -23,10 +23,11 @@ Manually copying dozens of source files into an AI chat is painful:
 ## The Solution
 
 ```bash
-python -m sfc
+sfc
 # → Interactive TUI opens
 # → Select files with arrow keys + space
 # → Press Enter → structured output + clipboard
+
 ```
 
 One command. Smart filtering. Auto-split. Clipboard copy. Done.
@@ -36,63 +37,62 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 ## ✨ Features
 
 | Feature | Description |
-|---------|-------------|
+| --- | --- |
 | **Zero dependencies** | Pure Python 3.10+ stdlib. No runtime pip dependencies needed. |
 | **Cross-platform** | Linux, macOS, Windows. Native TUI on all three. |
 | **Interactive TUI** | Arrow-key navigation, checkboxes, scrollable lists via `curses`/`msvcrt`. |
 | **Smart ignoring** | Built-in ignore rules. Fully customisable in Settings. |
+| **Project Size Report** | Displays total project size and percentage weight of dependency folders. |
+| **Limited-Depth Tree** | Truncate tree output with `-l` and automatically calculate skipped folder contents. |
 | **Auto-split** | Splits output into parts when exceeding character limits. |
 | **Native clipboard** | `pbcopy` · `clip.exe` · `wl-copy` · `xclip` · `xsel` — no pyperclip. |
 | **Presets** | Save & reuse file selections per project. |
-| **Self-updater** | Update raw package files, `.pyz`, and compiled binaries from GitHub. |
+| **Dynamic Self-Updater** | Pulls latest `sfc.pyz` release binaries directly from GitHub API. |
 | **Persistent config** | Settings saved to `~/.config/sfc/cfg.setting.json`. |
-| **Dynamic collect** | Uncheck files in the final review before generating output. |
 | **Comment Killer** | AST-based stripping of Python docstrings and `#` comments before export. |
-| **Portable zipapp** | Build `dist/sfc.pyz` with native Python `zipapp`. |
+| **Portable zipapp** | Build dynamic `sfc.pyz` containing the native package structure. |
 
 ---
 
 ## 📦 Installation
 
-### Quick (any OS)
+### One-line Install (Linux / macOS)
 
 ```bash
-git clone https://github.com/Heysh1n/sfc.git
-cd sfc
-python -m sfc
+bash <(curl -sL [https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh](https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh))
+
 ```
 
-### Linux / macOS
+The installer fetches the latest GitHub Release from `Heysh1n/sfc`, parses the `sfc.pyz` asset, installs it directly to `~/.local/bin/sfc` and marks it executable.
+
+### From Source
 
 ```bash
-# Run directly
+git clone [https://github.com/Heysh1n/sfc.git](https://github.com/Heysh1n/sfc.git)
+cd sfc
 python3 -m sfc
 
-# Build a portable single-file archive
-make zipapp
-./dist/sfc.pyz
-
-# Or
-python3 build.py
-./dist/sfc.pyz
 ```
 
-**Install globally:**
+### Using Makefile (Linux / macOS)
 
 ```bash
-cp dist/sfc.pyz ~/.local/bin/sfc
-chmod +x ~/.local/bin/sfc
-sfc
+# Build a portable single-file archive (sfc.pyz)
+make build
+
+# Install globally to ~/.local/bin/sfc
+make local-install
+
 ```
 
-**Clipboard (Linux only):**
+**Clipboard Prerequisites (Linux only):**
 
 ```bash
 # Wayland
 sudo apt install wl-clipboard
-
 # X11
 sudo apt install xclip
+
 ```
 
 ### Windows
@@ -100,12 +100,11 @@ sudo apt install xclip
 ```powershell
 python -m sfc
 
-# Build zipapp
+# Build zipapp manually
 python build.py
-python dist\sfc.pyz
-```
+python sfc.pyz
 
-Clipboard works automatically via `clip.exe`.
+```
 
 ---
 
@@ -114,13 +113,15 @@ Clipboard works automatically via `clip.exe`.
 ### Interactive Mode (TUI)
 
 ```bash
-python -m sfc
+sfc
+# or if running raw source: python3 -m sfc
+
 ```
 
 Opens a full-screen terminal interface:
 
 ```text
-  ━━━ 🔧 Smart File Collector v4.0.0 ━━━
+  ━━━ 🔧 Smart File Collector v4.7.0 ━━━
   📂 Project: sfc  │  📄 Files: 19
 ────────────────────────────────────────────────────────────
  ▸ 📂  Browse & Select
@@ -141,44 +142,23 @@ Opens a full-screen terminal interface:
 
    ↑↓:navigate  ENTER:select  q:quit
  Made with ❤️ by Heysh1n
+
 ```
 
-**Controls:**
+---
 
-| Key | Action |
-|-----|--------|
-| ↑ / ↓ | Navigate |
-| SPACE | Toggle checkbox |
-| ENTER | Select / confirm |
-| ESC | Go back |
-| q | Quit |
+## 📊 Size Report
 
-### CLI Mode (Scripting)
+CLI analysis automatically runs and prints project sizes before command output execution:
 
-```bash
-# Collect everything
-sfc all -o context.txt
+```text
+Total project size: 14.2M
+Dependency [node_modules]: 8.4M (59.1%)
+Dependency [.venv]: 3.1M (21.8%)
 
-# Pick specific files or patterns
-sfc pick src/main.py "src/config/*" "*.json"
-
-# Strip Python comments/docstrings during collect
-sfc all --strip
-
-# Show tree with sizes
-sfc tree -s
-
-# Find files
-sfc find "*.service.ts"
-
-# Read paths from file
-sfc from paths.txt
-
-# Manage presets
-sfc preset save backend "src/models/*" "src/db/*"
-sfc preset backend
-sfc preset list
 ```
+
+Detected first-level dependency/build folders include: `node_modules`, `venv`, `.venv`, `target`, and `build`. All percentages are dynamically calculated relative to total directory size via `Path.rglob()`.
 
 ---
 
@@ -187,7 +167,7 @@ sfc preset list
 ### Commands
 
 | Command | Description |
-|---------|-------------|
+| --- | --- |
 | *(none)* | Launch interactive TUI |
 | `all` | Collect all project files |
 | `pick [files...]` | Collect by path or glob pattern |
@@ -196,14 +176,16 @@ sfc preset list
 | `find <pattern>` | Find files matching a glob |
 | `from <file>` | Read paths from a text file |
 | `preset <action>` | Save / load / delete presets |
+| `--update` | Trigger dynamic self-updater via GitHub API |
 
 ### Flags
 
 | Flag | Description | Default |
-|------|-------------|---------|
+| --- | --- | --- |
 | `-p, --path` | Target root directory | `.` |
 | `-o, --output` | Output filename | `collected_output.txt` |
 | `-c, --chars` | Max chars per part | `90000` |
+| `-l, --level` | Max directory depth limit for `tree` | Full depth |
 | `--no-tree` | Exclude tree from output | off |
 | `-i, --ignore` | Extra dirs to ignore | `[]` |
 | `--strip` | Strip docstrings/comments from `.py` files | config value |
@@ -211,183 +193,56 @@ sfc preset list
 
 ---
 
-## 🎮 TUI Screens
+## 🗂️ Tree Depth Limitation
 
-### Browse & Select
-
-Select individual files with checkboxes:
-
-| Key | Action |
-|-----|--------|
-| SPACE | Toggle file checkbox |
-| / | Filter by substring |
-| a | Select all visible |
-| n | Deselect all visible |
-| p | Select by glob pattern |
-| c | Clear filter |
-| ENTER | Done → back to menu |
-
-### Collect Flow
-
-Before generating output, a **review screen** lets you dynamically
-uncheck files:
-
-```text
-  ━━━ 🔧 Smart File Collector v4.0.0 ━━━
-  ✅ Collect — 5 files
-  Uncheck items to exclude before collecting
-────────────────────────────────────────────────────────────
- [x] src/main.py
- [x] src/config/settings.py
- [ ] src/tests/test_main.py
- [x] README.md
- [x] pyproject.toml
-
-   SPACE:toggle  ENTER:collect  ESC:cancel
- Made with ❤️ by Heysh1n
-```
-
-### Settings
-
-Persistent configuration with editable options:
-
-```text
-  ━━━ 🔧 Smart File Collector v4.0.0 ━━━
-  ⚙️ Settings
-────────────────────────────────────────────────────────────
- ▸ Output file:        collected_output.txt
-   Max chars/part:     90,000
-   Include tree:       ON
-   Auto clipboard:     OFF
-   Page size:          20
-   Comment Killer:     OFF
-   Clipboard backend:  xclip
-   ──────────────────────────────
-   🚫  Ignoring (dirs/files/ext)
-   🔄  Refresh files  (19 indexed)
-   ──────────────────────────────
-   ↩   Back
-
-   ↑↓:navigate  ENTER:select  q:quit
- Made with ❤️ by Heysh1n
-```
-
-- **Settings → Ignoring → Directories** — folder names to skip
-- **Settings → Ignoring → Files** — exact filenames to skip
-- **Settings → Ignoring → Extensions** — suffixes to skip
-- **Reset to defaults** — restore built-in rules
-
-Config saved at:
-
-| OS | Path |
-|----|------|
-| Linux/macOS | `~/.config/sfc/cfg.setting.json` |
-| Windows | `%APPDATA%\sfc\cfg.setting.json` |
-
----
-
-## 💀 Comment Killer (v4.0)
-
-`Smart File Collector` can now strip Python explanations before export.
-
-When enabled:
-
-- Module docstrings are removed
-- Class docstrings are removed
-- Function docstrings are removed
-- `#` comments are removed
-- Common pragmas are preserved:
-  - `# type:`, `# noqa`, `# pragma:`, `# pylint:`
-  - `# fmt:`, `# isort:`, `# mypy:`, `# pyright:`
-
-Implemented with `ast` + `tokenize`. **No regex is used.**
-
-Enable it via:
-
-- **TUI:** `Settings → Comment Killer`
-- **CLI:** `--strip`
-
----
-
-## 📄 Output Format
-
-```text
-══════════════
-📋 sfc [pick]
-📅 19.03.2026 16:52:42
-📄 Files: 3
-══════════════
-
-┌────────────
-│ 🗂️  STRUCTURE
-├────────────
-│ 📦 sfc/
-│ ├── 📂 src/
-│ │   ├── 📄 main.py
-│ │   └── 📄 utils.py
-│ └── 📄 README.md
-└────────────
-
-┌─── 📄 [1/3] src/main.py
-def main():
-    print("Hello AI!")
-└────────────────────────────────────────
-
-┌─── 📄 [2/3] src/utils.py
-def helper():
-    return 42
-└────────────────────────────────────────
-
-┌─── 📄 [3/3] README.md
-# My Project
-└────────────────────────────────────────
-
-═════
-✅ End
-═════
-```
-
-**Auto-split:** When output exceeds the character limit, files are
-automatically split into `_p1.txt`, `_p2.txt`, etc.
-
----
-
-## 🔖 Presets
-
-Save file selections for repeated use:
+Use `-l` / `--level` to prevent long terminal or context spans when running project trees:
 
 ```bash
-# Save
-sfc preset save api "src/routes/*" "src/middleware/*"
+sfc tree -l 1
+sfc tree --level 2
 
-# Use
-sfc preset api
-
-# List
-sfc preset list
-
-# Delete
-sfc preset delete api
 ```
 
-Stored per-project in `.sfc-presets.json`.
+When a directory layer reaches the limit, `sfc` stops traversing deeper and leverages `Path.rglob()` to print a condensed summary:
+
+```text
+📦 my-project/
+├── 📂 node_modules/ (+1,842 folders | +12,450 files)
+├── 📂 sfc/ (+8 folders | +64 files)
+├── 📂 tests/ (+2 folders | +18 files)
+├── 📂 docs/ (empty)
+├── 📄 README.md
+└── 📄 pyproject.toml
+
+```
 
 ---
 
-## 🔄 Self-Updater
+## 💀 Comment Killer
 
-In TUI: **Main Menu → Check for updates**
+`sfc` strips down Python explanations via `ast` + `tokenize` processing to save LLM tokens.
 
-v4.0 updater supports:
+When enabled (`--strip` or via TUI Settings), it wipes:
 
-| Format | Method |
-|--------|--------|
-| Package (`python -m sfc`) | Overwrites individual module files |
-| Zipapp (`.pyz`) | Downloads asset from GitHub Releases |
-| Windows `.exe` | Detached batch-script swaps running binary |
-| Linux/macOS binary | Atomic rename (POSIX doesn't lock executables) |
+* Module, Class, and Function docstrings.
+* All standard `#` comments.
+* **Preserves code pragmas:** `# type:`, `# noqa`, `# pragma:`, `# pylint:`, `# fmt:`, etc.
 
-No sudo required unless installed in a protected system directory.
+---
+
+## 🔄 Self-Updater Engine
+
+```bash
+sfc --update
+
+```
+
+The dynamic updater executes under the following flow:
+
+1. Queries the GitHub API: `https://api.github.com/repos/Heysh1n/sfc/releases/latest` using a mandatory `User-Agent: sfc-updater` header.
+2. Extracts `tag_name`, automatically stripping any `v` prefix (`v4.7.0` -> `4.7.0`).
+3. Formats versions into integer tuples to perform strict SemVer comparison (`4.10.0` > `4.7.0`).
+4. Locates the `sfc.pyz` build asset, downloads it into a localized `<current-binary>.tmp` file, and uses an atomic `os.replace()` swap before applying executable permissions (`0o755`).
 
 ---
 
@@ -395,116 +250,35 @@ No sudo required unless installed in a protected system directory.
 
 ```text
 sfc/
-├── Makefile             # zipapp / win / linux / macos / check / clean
+├── Makefile             # build (zipapp) / local-install / clean
 ├── build.py             # Python-native build script
-├── pyproject.toml       # Package metadata
-├── requirements-build.txt
+├── install.sh           # Interactive TUI bash installation script
+├── pyproject.toml       # Package metadata (Poetry managed)
+├── poetry.lock          # Locked dependency states
 └── sfc/
     ├── __init__.py      # Package marker
-    ├── __main__.py      # Entry point
-    ├── version.py       # Version + metadata constants
+    ├── __main__.py      # Entry point (main:cli mapping)
+    ├── version.py       # Version storage (__version__ = "4.7.0")
     ├── patterns.py      # Default ignores, glob helpers
     ├── config.py        # Persistent JSON config
-    ├── collector.py     # File scanner, AST comment killer, tree, output
+    ├── collector.py     # File scanner, AST comment killer, tree, sizes
     ├── clipboard.py     # Native clipboard integration
-    ├── updater.py       # Self-update (package / pyz / exe / elf)
+    ├── updater.py       # GitHub API SemVer self-update logic
     ├── app.py           # CLI parser + TUI controller
     └── tui/
         ├── __init__.py  # Platform detection
         ├── base.py      # Key enum, abstract engine, menu_loop
         ├── curses_tui.py # Linux/macOS engine
         └── win_tui.py   # Windows engine
+
 ```
-
-**Zero** runtime dependencies.
-**Zero** circular imports.
-
----
-
-## 📋 Requirements
-
-- Python 3.10+
-- Terminal with at least 80×24 for TUI
-- **Linux clipboard:** `xclip`, `xsel`, or `wl-copy`
-- **macOS clipboard:** built-in (`pbcopy`)
-- **Windows clipboard:** built-in (`clip.exe`)
-
----
-
-## 🔨 Building
-
-### Portable zipapp
-
-```bash
-make zipapp
-# or
-python build.py
-```
-
-Output: `dist/sfc.pyz`
-
-```bash
-./dist/sfc.pyz        # Linux/macOS
-python dist\sfc.pyz   # Windows
-```
-
-### PyInstaller binaries
-
-```bash
-make check    # verify prerequisites first
-make win      # Windows .exe
-make linux    # Linux ELF
-make macos    # macOS binary
-```
-
-> **Note:** PyInstaller requires Python built with `--enable-shared`.
-> GitHub Codespaces does not have this. Use `make zipapp` instead.
-
-### Clean
-
-```bash
-make clean
-# or
-python build.py clean
-```
-
----
-
-## 💡 Tips for AI Workflows
-
-1. **Don't send everything.**
-   ```bash
-   sfc pick "src/db/*" "src/models/*"
-   ```
-
-2. **Use character limits.**
-   ```bash
-   sfc all -c 50000
-   ```
-
-3. **Strip comments for cleaner Python context.**
-   ```bash
-   sfc all --strip
-   ```
-
-4. **Quick Pick from AI output.**
-   Copy the list → TUI → Quick Pick → paste → collect.
-
-5. **Combine with git:**
-   ```bash
-   git diff --name-only > changed.txt
-   sfc from changed.txt
-   ```
-
-6. **Save frequent selections:**
-   ```bash
-   sfc preset save backend "src/models/*" "src/services/*"
-   ```
 
 ---
 
 ## 📜 License
 
-[MIT](LICENSE) — © 2026 [Heysh1n](https://github.com/Heysh1n)
+[MIT](https://www.google.com/search?q=LICENSE) — © 2026 [Heysh1n](https://github.com/Heysh1n)
 
-Made with ❤️ by Heysh1n
+<p align="center">
+  Made with ❤️ by Heysh1n
+</p>

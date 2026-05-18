@@ -4,24 +4,25 @@ import argparse
 import sys
 from pathlib import Path
 
-from .version import VERSION, APP_TITLE
-from .config import AppConfig, load_config, save_config, load_presets, save_presets
-from .collector import (
+from sfc.version import VERSION, APP_TITLE
+from sfc.config import AppConfig, load_config, save_config, load_presets, save_presets
+from sfc.collector import (
     get_all_files,
     build_tree,
     write_output,
     read_safe,
     fmt_size,
+    project_size_report,
 )
-from .clipboard import copy_to_clipboard, available_backend, ClipboardResult
-from .patterns import (
+from sfc.clipboard import copy_to_clipboard, available_backend, ClipboardResult
+from sfc.patterns import (
     resolve_patterns,
     matches_pattern,
     HELP_GLOB,
     HELP_PRESETS,
     HELP_FILTERS,
 )
-from .updater import check_update, apply_update
+from sfc.updater import check_update, apply_update, update_current_binary
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -35,6 +36,7 @@ def _cli_all(args: argparse.Namespace, cfg: AppConfig) -> None:
         return
     extra = set(args.ignore) if args.ignore else None
     files = get_all_files(root, cfg, extra)
+    _cli_print_size_report(root)
     print(f"📄 {len(files)} files")
     created = write_output(
         root, files, args.output, "all",
@@ -64,7 +66,9 @@ def _cli_pick(args: argparse.Namespace, cfg: AppConfig) -> None:
     if not patterns:
         print("❌ No files specified")
         return
-    all_f = get_all_files(root, cfg)
+    extra = set(args.ignore) if args.ignore else None
+    all_f = get_all_files(root, cfg, extra)
+    _cli_print_size_report(root)
     picked, unmatched = resolve_patterns(root, patterns, all_f)
     for u in unmatched:
         print(f"  ⚠️  Not found: {u}")
@@ -84,9 +88,21 @@ def _cli_tree(args: argparse.Namespace, cfg: AppConfig) -> None:
     if not root.is_dir():
         print(f"❌ Not a directory: {root}")
         return
+    if args.level is not None and args.level < 0:
+        print("❌ --level must be >= 0")
+        return
     extra = set(args.ignore) if args.ignore else None
     files = get_all_files(root, cfg, extra)
-    print(f"\n{build_tree(root, files, sizes=getattr(args, 'sizes', False))}")
+    _cli_print_size_report(root)
+    tree = build_tree(
+        root,
+        files,
+        sizes=getattr(args, "sizes", False),
+        level=args.level,
+        cfg=cfg,
+        extra_ignore=extra,
+    )
+    print(f"\n{tree}")
     print(f"\n📄 Total: {len(files)}")
 
 
@@ -181,6 +197,13 @@ def _cli_print_created(created: list[tuple[Path, int]]) -> None:
         print(f"     📄 {fn.name}: {ch:,} chars")
 
 
+def _cli_print_size_report(root: Path) -> None:
+    total, dependencies = project_size_report(root)
+    print(f"Total project size: {fmt_size(total)}")
+    for name, size, percent in dependencies:
+        print(f"Dependency [{name}]: {fmt_size(size)} ({percent:.1f}%)")
+
+
 # ════════════════════════════════════════════════════════════════════
 #  CLI PARSER
 # ════════════════════════════════════════════════════════════════════
@@ -203,6 +226,11 @@ def _build_parser(cfg: AppConfig) -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("-V", "--version", action="version", version=f"sfc {VERSION}")
+    parser.add_argument(
+        "--update",
+        action="store_true",
+        help="Download the latest sfc.pyz and replace the current executable",
+    )
     sub = parser.add_subparsers(dest="cmd")
 
     sub.add_parser("all", parents=[common])
@@ -212,6 +240,7 @@ def _build_parser(cfg: AppConfig) -> argparse.ArgumentParser:
 
     st = sub.add_parser("tree", parents=[common])
     st.add_argument("-s", "--sizes", action="store_true")
+    st.add_argument("-l", "--level", type=int, default=None)
 
     sf = sub.add_parser("find", parents=[common])
     sf.add_argument("pattern")
@@ -254,7 +283,7 @@ class App:
         self.rel_paths: list[str] = []
         self._refresh_files()
 
-        from .tui import get_engine
+        from sfc.tui import get_engine
         self.engine = get_engine()
 
     def _refresh_files(self) -> None:
@@ -277,7 +306,7 @@ class App:
     # ── Main Menu ──────────────────────────────────────────────────
 
     def _main_menu(self) -> None:
-        from .tui.base import MenuItem, Key, KeyEvent
+        from sfc.tui.base import MenuItem, Key, KeyEvent
 
         while True:
             sel_count = len(self.selected)
@@ -370,7 +399,7 @@ class App:
     # ── Browse & Select ────────────────────────────────────────────
 
     def _browse(self) -> None:
-        from .tui.base import MenuItem, Key, KeyEvent
+        from sfc.tui.base import MenuItem, Key, KeyEvent
 
         filter_text: str = ""
 
@@ -491,7 +520,7 @@ class App:
     # ── Search ─────────────────────────────────────────────────────
 
     def _search(self) -> None:
-        from .tui.base import MenuItem, Key, KeyEvent
+        from sfc.tui.base import MenuItem, Key, KeyEvent
 
         pat = self.engine.prompt("Search glob: ")
         if not pat:
@@ -598,7 +627,7 @@ class App:
     # ── Collect Selected (with dynamic uncheck) ────────────────────
 
     def _do_collect(self) -> None:
-        from .tui.base import MenuItem
+        from sfc.tui.base import MenuItem
 
         if not self.selected:
             self.engine.show_message("⚠️ Nothing selected")
@@ -691,7 +720,7 @@ class App:
     # ── Settings ───────────────────────────────────────────────────
 
     def _settings_menu(self) -> None:
-        from .tui.base import MenuItem
+        from sfc.tui.base import MenuItem
 
         while True:
             tree_s = "ON" if self.cfg.show_tree else "OFF"
@@ -787,7 +816,7 @@ class App:
     # ── Ignoring Sub-Menu ──────────────────────────────────────────
 
     def _ignoring_menu(self) -> None:
-        from .tui.base import MenuItem
+        from sfc.tui.base import MenuItem
 
         while True:
             items = [
@@ -844,7 +873,7 @@ class App:
                 self.engine.draw_text_block(HELP_FILTERS)
 
     def _edit_ignore_list(self, title: str, lst: list[str]) -> None:
-        from .tui.base import MenuItem, Key, KeyEvent
+        from sfc.tui.base import MenuItem, Key, KeyEvent
 
         while True:
             items = [
@@ -912,7 +941,7 @@ class App:
     # ── Presets ────────────────────────────────────────────────────
 
     def _presets_menu(self) -> None:
-        from .tui.base import MenuItem
+        from sfc.tui.base import MenuItem
 
         while True:
             presets = load_presets(self.root)
@@ -1015,7 +1044,7 @@ class App:
     # ── Help ───────────────────────────────────────────────────────
 
     def _help_menu(self) -> None:
-        from .tui.base import MenuItem
+        from sfc.tui.base import MenuItem
 
         items = [
             MenuItem("📖  Glob Patterns", "glob"),
@@ -1139,6 +1168,14 @@ def run(argv: list[str] | None = None) -> None:
 
     parser = _build_parser(cfg)
     args = parser.parse_args(argv)
+
+    if args.update:
+        result = update_current_binary()
+        if result.ok:
+            print(f"✅ {result.message}")
+        else:
+            print(f"❌ {result.message}")
+        return
 
     # Apply --strip flag to cfg
     if hasattr(args, "strip") and args.strip:

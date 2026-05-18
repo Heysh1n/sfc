@@ -12,7 +12,7 @@ import curses
 import locale
 import os
 
-from .base import (
+from sfc.tui.base import (
     Engine,
     Key,
     KeyEvent,

@@ -89,7 +89,7 @@ HELP_GLOB: str = """\
  │                                                           │
  │  Examples:                                                │
  │    *.py             all Python files (any depth)          │
- │    src/*.ts         .ts files directly in src/            │
+ │    sfc/*.py         .py files directly in sfc/            │
  │    test_*.py        files starting with test_             │
  │    *.service.ts     Angular services                      │
  │    config/*         everything inside config/             │
@@ -109,7 +109,7 @@ HELP_PRESETS: str = """\
  │  Delete: Presets → Delete → pick number                  │
  │                                                          │
  │  CLI:                                                    │
- │    sfc preset save myconf "src/config/*" ".env.example"  │
+ │    sfc preset save myconf "sfc/*.py" "README.md"         │
  │    sfc preset myconf                                     │
  │    sfc preset list                                       │
  │    sfc preset delete myconf                              │
@@ -130,7 +130,7 @@ HELP_FILTERS: str = """\
  │  Extensions:   file suffixes excluded by extension        │
  │     e.g.  .pyc, .jpg, .zip, .pdf                        │
  │                                                          │
- │  Comment Killer (v4.0):                                  │
+ │  Comment Killer:                                         │
  │     Settings → Strip Explanations → ON                   │
  │     Removes docstrings + comments from .py files (AST)   │
  │                                                          │
@@ -148,7 +148,7 @@ HELP_FILTERS: str = """\
 def matches_pattern(rel_path: str, name: str, pattern: str) -> bool:
     """Return *True* if *rel_path* or *name* matches *pattern* (fnmatch).
 
-    Tries three variants so both ``*.py`` and ``src/main.py`` work
+    Tries three variants so both ``*.py`` and ``sfc/app.py`` work
     intuitively from any context.
     """
     return (

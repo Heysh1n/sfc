@@ -14,7 +14,7 @@ import msvcrt
 import os
 import sys
 
-from .base import (
+from sfc.tui.base import (
     Engine,
     Key,
     KeyEvent,
@@ -192,8 +192,8 @@ class WinEngine(Engine):
         self._w(_mv(pr, 0) + _CLR + f" {_FG_YELLOW}{full}{_RST}")
         while True:
             ev = self.get_key()
-            if ev.key is Key.CHAR and ev.char.lower() in ("y", "n", "д", "н"):
-                return ev.char.lower() in ("y", "д")
+            if ev.key is Key.CHAR and ev.char.lower() in ("y", "n"):
+                return ev.char.lower() == "y"
             if ev.key in (Key.ENTER, Key.ESCAPE):
                 return False
 

@@ -7,7 +7,7 @@ import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .base import Engine
+    from sfc.tui.base import Engine
 
 
 def get_engine() -> Engine:
@@ -22,7 +22,7 @@ def get_engine() -> Engine:
         If no usable backend can be initialised.
     """
     if os.name == "nt":
-        from .win_tui import WinEngine
+        from sfc.tui.win_tui import WinEngine
         return WinEngine()
 
     # POSIX: curses requires a real terminal
@@ -31,5 +31,5 @@ def get_engine() -> Engine:
             "sfc interactive mode requires a terminal (stdout is not a TTY)"
         )
 
-    from .curses_tui import CursesEngine
+    from sfc.tui.curses_tui import CursesEngine
     return CursesEngine()

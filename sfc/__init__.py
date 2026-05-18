@@ -1,5 +1,5 @@
 """Smart File Collector — collect project files for AI context."""
 
-from .version import VERSION
+from sfc.version import VERSION
 
 __version__: str = VERSION

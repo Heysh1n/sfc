@@ -16,8 +16,8 @@ from dataclasses import asdict, dataclass, field, fields as dc_fields
 from pathlib import Path
 from typing import Any
 
-from .version import APP_NAME
-from .patterns import (
+from sfc.version import APP_NAME
+from sfc.patterns import (
     DEFAULT_IGNORE_DIRS,
     DEFAULT_IGNORE_FILES,
     DEFAULT_IGNORE_EXTENSIONS,
@@ -121,7 +121,10 @@ def load_config() -> AppConfig:
     fp: Path = config_path()
     if not fp.exists():
         cfg = AppConfig()
-        save_config(cfg)
+        try:
+            save_config(cfg)
+        except OSError:
+            pass
         return cfg
     try:
         raw: dict[str, Any] = json.loads(fp.read_text("utf-8"))

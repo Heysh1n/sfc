@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from enum import Enum, auto
 from typing import Callable
 
-from ..version import FOOTER_TEXT
+from sfc.version import FOOTER_TEXT
 
 
 # ════════════════════════════════════════════════════════════════════
