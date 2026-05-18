@@ -1,81 +1,68 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
+set -e
 
-GITHUB_API="https://api.github.com/repos/Heysh1n/sfc/releases/latest"
-ASSET_NAME="sfc.pyz"
-TARGET_DIR="${HOME}/.local/bin"
-TARGET="${TARGET_DIR}/sfc"
-tmp=""
+INSTALL_DIR="$HOME/.local/bin"
+API_URL="https://api.github.com/repos/Heysh1n/sfc/releases/latest"
+USER_AGENT="sfc-installer"
 
-cleanup() {
-  if [[ -n "${tmp}" ]]; then
-    rm -f "${tmp}"
-  fi
-}
-trap cleanup EXIT
+echo "=== SFC Installer ==="
+PS3="Select action: "
+options=("Install SFC locally" "Exit")
 
-latest_asset_url() {
-  curl -fsSL -H "User-Agent: sfc-updater" "${GITHUB_API}" |
-    python3 -c '
+select opt in "${options[@]}"; do
+    case "$REPLY" in
+        1)
+            echo "Fetching latest release data..."
+
+            TMP_JSON=$(mktemp)
+            curl -sS -H "User-Agent: $USER_AGENT" "$API_URL" -o "$TMP_JSON"
+
+            DOWNLOAD_URL=$(python3 -c "
 import json
 import sys
 
-asset_name = sys.argv[1]
-release = json.load(sys.stdin)
+try:
+    with open('$TMP_JSON') as f:
+        data = json.load(f)
 
-for asset in release.get("assets", []):
-    if asset.get("name") == asset_name:
-        print(asset.get("browser_download_url", ""))
-        raise SystemExit(0)
+    assets = data.get('assets', [])
+    urls = [
+        asset['browser_download_url']
+        for asset in assets
+        if asset.get('name') == 'sfc.pyz' and asset.get('browser_download_url')
+    ]
 
-raise SystemExit(f"{asset_name} not found in latest release")
-' "${ASSET_NAME}"
-}
+    if urls:
+        print(urls[0])
+    else:
+        print('ERROR: sfc.pyz asset not found in latest release')
+except Exception as e:
+    print(f'ERROR: Failed to parse GitHub API response ({e})')
+")
+            rm -f "$TMP_JSON"
 
-install_local() {
-  if ! command -v curl >/dev/null 2>&1; then
-    echo "curl not found"
-    exit 1
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "python3 not found"
-    exit 1
-  fi
+            if [[ "$DOWNLOAD_URL" == ERROR* ]] || [[ -z "$DOWNLOAD_URL" ]]; then
+                echo "$DOWNLOAD_URL"
+                exit 1
+            fi
 
-  url="$(latest_asset_url)"
-  if [[ -z "${url}" ]]; then
-    echo "browser_download_url not found for ${ASSET_NAME}"
-    exit 1
-  fi
+            echo "Downloading sfc.pyz..."
+            mkdir -p "$INSTALL_DIR"
+            curl -sL -H "User-Agent: $USER_AGENT" "$DOWNLOAD_URL" -o "$INSTALL_DIR/sfc"
+            chmod +x "$INSTALL_DIR/sfc"
 
-  mkdir -p "${TARGET_DIR}"
-  tmp="${TARGET}.tmp"
-  rm -f "${tmp}"
-  curl -fL -H "User-Agent: sfc-updater" "${url}" -o "${tmp}"
-  mv "${tmp}" "${TARGET}"
-  tmp=""
-  chmod +x "${TARGET}"
-  echo "SFC installed: ${TARGET}"
-}
-
-PS3="Select action: "
-options=(
-  "Install SFC locally"
-  "Exit"
-)
-
-select option in "${options[@]}"; do
-  case "${REPLY}" in
-    1)
-      install_local
-      break
-      ;;
-    2)
-      echo "Exit"
-      break
-      ;;
-    *)
-      echo "Invalid selection"
-      ;;
-  esac
+            echo "============================================="
+            echo "Successfully installed to $INSTALL_DIR/sfc"
+            echo "Make sure $INSTALL_DIR is in your PATH"
+            echo "============================================="
+            break
+            ;;
+        2)
+            echo "Exit."
+            exit 0
+            ;;
+        *)
+            echo "Invalid option. Try again."
+            ;;
+    esac
 done
