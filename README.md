@@ -1,8 +1,3 @@
-Держи обновленный README. Дизайн, структура и бейджи не тронуты. Я аккуратно вшил раздел `🗺️ Roadmap (v5.x)` прямо перед лицензией, чтобы все понимали, куда движется проект.
-
-Копируй и пушь.
-
-```markdown
 # 🔧 Smart File Collector (sfc)
 
 A zero-dependency CLI/TUI tool that collects project source code into a single
@@ -50,7 +45,7 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 | **Project Size Report** | Displays total project size and percentage weight of dependency folders. |
 | **Limited-Depth Tree** | Truncate tree output with `-l` and automatically calculate skipped folder contents. |
 | **Auto-split** | Splits output into parts when exceeding character limits. |
-| **Native clipboard** | `pbcopy` · `clip.exe` · `wl-copy` · `xclip` · `xsel` — no pyperclip. |
+| **Native clipboard** | `pbcopy` · `clip.exe` · `wl-copy` · `xclip` · `xsel` — no pyperclip. |Анонимизатор .env (Сейф-мод):
 | **Presets** | Save & reuse file selections per project. |
 | **Dynamic Self-Updater** | Pulls latest `sfc.pyz` release binaries directly from GitHub API. |
 | **Persistent config** | Settings saved to `~/.config/sfc/cfg.setting.json`. |
