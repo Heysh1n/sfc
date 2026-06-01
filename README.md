@@ -1,3 +1,8 @@
+Держи обновленный README. Дизайн, структура и бейджи не тронуты. Я аккуратно вшил раздел `🗺️ Roadmap (v5.x)` прямо перед лицензией, чтобы все понимали, куда движется проект.
+
+Копируй и пушь.
+
+```markdown
 # 🔧 Smart File Collector (sfc)
 
 A zero-dependency CLI/TUI tool that collects project source code into a single
@@ -59,7 +64,7 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 ### One-line Install (Linux / macOS)
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh)
+bash <(curl -sL [https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh](https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh))
 
 ```
 
@@ -68,7 +73,7 @@ The installer fetches the latest GitHub Release from `Heysh1n/sfc`, parses the `
 ### From Source
 
 ```bash
-git clone https://github.com/Heysh1n/sfc.git
+git clone [https://github.com/Heysh1n/sfc.git](https://github.com/Heysh1n/sfc.git)
 cd sfc
 python3 -m sfc
 
@@ -272,6 +277,27 @@ sfc/
         └── win_tui.py   # Windows engine
 
 ```
+
+---
+
+## 🗺️ Roadmap (Upcoming in v5.x)
+
+Future releases are mapped out to evolve `sfc` into a bi-directional AI workflow engine without sacrificing its lightweight, zero-dependency nature.
+
+### 🚀 v5.1.0: Smart QoL Update
+
+* **Fuzzy Matching:** Typo correction for CLI commands (e.g., `sfc pck` auto-resolves to `pick`).
+* **Safe-Mode Env Parser:** `--safe-env` flag to include `.env` file structure in the context while dynamically scrubbing sensitive values (e.g., `DB_PASS=***REDACTED***`).
+
+### 🚀 v5.3.0: The AI I/O Bridge
+
+* **Export Formats:** `--format <txt|md|json>` support to generate valid Markdown or machine-readable JSON payloads for API integrations.
+* **Scaffold Command:** `sfc scaffold` to parse ASCII directory trees from AI chat outputs (via clipboard or stdin) and automatically generate the local folder and empty file structure.
+
+### 🚀 v5.5.0: The Mutator
+
+* **Mass Rename:** `sfc rename <pattern> <replacement>` for bulk regex-based file renaming.
+* **Strict Safe-Guards:** Runs strictly in `--dry-run` by default. Requires `--apply` to execute file system mutations, fully respecting existing `sfc` ignore rules to protect dependency folders.
 
 ---
 
