@@ -128,12 +128,12 @@ class WinEngine(Engine):
         try:
             ch: str = msvcrt.getwch()
         except KeyboardInterrupt:
-            return KeyEvent(Key.ESCAPE)
+            raise
         if ch in ("\x00", "\xe0"):
             try:
                 ext = msvcrt.getwch()
             except KeyboardInterrupt:
-                return KeyEvent(Key.ESCAPE)
+                raise
             return self._map_ext(ext)
         o = ord(ch)
         if o == 27:

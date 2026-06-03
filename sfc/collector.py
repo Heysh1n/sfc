@@ -46,15 +46,76 @@ def fmt_size(n: int) -> str:
 DEPENDENCY_DIRS: tuple[str, ...] = (
     "node_modules", "venv", ".venv", "target", "build",
 )
+MAX_FILES_LIMIT: int = 50_000
+MAX_FILES_LIMIT_MESSAGE: str = (
+    "[!] Limit of 50,000 files reached. "
+    "Narrow your search or configure ignore rules."
+)
+BINARY_FILE_PLACEHOLDER: str = "[SKIPPED: Binary file detected]"
+
+
+class MaxFilesLimitError(RuntimeError):
+    """Raised when a scan would include too many files."""
+
+
+def _raise_if_file_limit(count: int) -> None:
+    if count > MAX_FILES_LIMIT:
+        raise MaxFilesLimitError(MAX_FILES_LIMIT_MESSAGE)
+
+
+def _is_binary_file(fp: Path) -> bool:
+    """Return True when the first 1024 bytes contain a NUL byte."""
+    try:
+        with fp.open("rb") as fh:
+            return b"\x00" in fh.read(1024)
+    except OSError:
+        return False
+
+
+def _matches_ignore(rel_path: str, name: str, patterns: set[str]) -> bool:
+    from sfc.patterns import matches_pattern
+
+    return any(
+        pattern and matches_pattern(rel_path, name, pattern)
+        for pattern in patterns
+    )
+
+
+def _relative_posix(path: Path, root: Path) -> str:
+    return str(path.relative_to(root)).replace("\\", "/")
+
+
+def _ignore_sets(
+    root: Path,
+    cfg: AppConfig | None,
+    extra_ignore: set[str] | None,
+) -> tuple[set[str], set[str], set[str]]:
+    from sfc.patterns import load_sfcignore
+
+    ignore_dirs: set[str] = cfg.ignore_dirs_set() if cfg else set()
+    if extra_ignore:
+        ignore_dirs |= extra_ignore
+    ignore_files: set[str] = cfg.ignore_files_set() if cfg else set()
+    ignore_ext: set[str] = cfg.ignore_ext_set() if cfg else set()
+
+    local_ignore: set[str] = load_sfcignore(root)
+    if local_ignore:
+        ignore_dirs |= local_ignore
+        ignore_files |= local_ignore
+
+    return ignore_dirs, ignore_files, ignore_ext
 
 
 def _sum_files_rglob(root: Path) -> int:
     """Sum file sizes below *root* using ``Path.rglob``."""
     total: int = 0
+    file_count: int = 0
     try:
         for item in root.rglob("*"):
             try:
                 if item.is_file():
+                    file_count += 1
+                    _raise_if_file_limit(file_count)
                     total += item.stat().st_size
             except OSError:
                 continue
@@ -82,6 +143,9 @@ def project_size_report(root: Path) -> tuple[int, list[tuple[str, int, float]]]:
 
 def read_safe(fp: Path) -> str:
     """Read file trying multiple encodings, never raises."""
+    if _is_binary_file(fp):
+        return BINARY_FILE_PLACEHOLDER
+
     for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
         try:
             return fp.read_text(encoding=enc)
@@ -304,27 +368,35 @@ def get_all_files(
     list[Path]
         Sorted list of absolute paths.
     """
-    ignore_dirs: set[str] = cfg.ignore_dirs_set()
-    if extra_ignore:
-        ignore_dirs |= extra_ignore
-    ignore_files: set[str] = cfg.ignore_files_set()
-    ignore_ext: set[str] = cfg.ignore_ext_set()
     root = root.resolve()
+    ignore_dirs, ignore_files, ignore_ext = _ignore_sets(
+        root, cfg, extra_ignore,
+    )
     result: list[Path] = []
+    file_count: int = 0
 
     for dirpath, dirnames, filenames in os.walk(root):
+        current_dir = Path(dirpath)
         # Prune ignored directories in-place (also sorts for determinism)
-        dirnames[:] = sorted(d for d in dirnames if d not in ignore_dirs)
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if not _matches_ignore(
+                _relative_posix(current_dir / d, root), d, ignore_dirs,
+            )
+        )
 
         for fn in sorted(filenames):
-            if fn in ignore_files:
+            fp = current_dir / fn
+            rel = _relative_posix(fp, root)
+            if _matches_ignore(rel, fn, ignore_files):
                 continue
             if _is_self_file(fn):
                 continue
-            fp = Path(dirpath) / fn
             if fp.suffix.lower() in ignore_ext:
                 continue
             result.append(fp)
+            file_count += 1
+            _raise_if_file_limit(file_count)
 
     return result
 
@@ -345,6 +417,8 @@ def read_file_content(fp: Path, strip: bool = False) -> str:
     """
     content = read_safe(fp)
     if content.startswith("[ERR:"):
+        return content
+    if content == BINARY_FILE_PLACEHOLDER:
         return content
     if strip and fp.suffix.lower() == ".py":
         try:
@@ -370,6 +444,7 @@ def _count_nested_entries(root: Path) -> tuple[int, int]:
                     folders += 1
                 elif item.is_file():
                     files += 1
+                    _raise_if_file_limit(files)
             except OSError:
                 continue
     except OSError:
@@ -388,40 +463,52 @@ def _limited_dir_label(path: Path) -> str:
 def _tree_ignore_sets(
     cfg: AppConfig | None,
     extra_ignore: set[str] | None,
+    root: Path | None = None,
 ) -> tuple[set[str], set[str], set[str]]:
-    ignore_dirs: set[str] = cfg.ignore_dirs_set() if cfg else set()
-    if extra_ignore:
-        ignore_dirs |= extra_ignore
-    ignore_files: set[str] = cfg.ignore_files_set() if cfg else set()
-    ignore_ext: set[str] = cfg.ignore_ext_set() if cfg else set()
-    return ignore_dirs, ignore_files, ignore_ext
+    if root is None:
+        ignore_dirs: set[str] = cfg.ignore_dirs_set() if cfg else set()
+        if extra_ignore:
+            ignore_dirs |= extra_ignore
+        ignore_files: set[str] = cfg.ignore_files_set() if cfg else set()
+        ignore_ext: set[str] = cfg.ignore_ext_set() if cfg else set()
+        return ignore_dirs, ignore_files, ignore_ext
+    return _ignore_sets(root.resolve(), cfg, extra_ignore)
 
 
 def _visible_tree_children(
     directory: Path,
     cfg: AppConfig | None,
     extra_ignore: set[str] | None,
+    root: Path | None = None,
 ) -> list[tuple[Path, bool]]:
-    ignore_dirs, ignore_files, ignore_ext = _tree_ignore_sets(cfg, extra_ignore)
+    root = root.resolve() if root else directory.resolve()
+    ignore_dirs, ignore_files, ignore_ext = _tree_ignore_sets(
+        cfg, extra_ignore, root,
+    )
     children: list[tuple[Path, bool]] = []
+    file_count: int = 0
 
     try:
-        entries = list(directory.iterdir())
+        entries = directory.iterdir()
     except OSError:
         return children
 
     for entry in entries:
         try:
             if entry.is_dir() and not entry.is_symlink():
-                if entry.name not in ignore_dirs:
+                rel = _relative_posix(entry, root)
+                if not _matches_ignore(rel, entry.name, ignore_dirs):
                     children.append((entry, True))
             elif entry.is_file():
-                if entry.name in ignore_files:
+                rel = _relative_posix(entry, root)
+                if _matches_ignore(rel, entry.name, ignore_files):
                     continue
                 if _is_self_file(entry.name):
                     continue
                 if entry.suffix.lower() in ignore_ext:
                     continue
+                file_count += 1
+                _raise_if_file_limit(file_count)
                 children.append((entry, False))
         except OSError:
             continue
@@ -447,7 +534,7 @@ def _build_limited_tree(
         return f"{lines[0]} (+{folders} folders | +{files} files)"
 
     def _render(directory: Path, prefix: str, depth: int) -> None:
-        items = _visible_tree_children(directory, cfg, extra_ignore)
+        items = _visible_tree_children(directory, cfg, extra_ignore, root)
         for idx, (child, is_dir) in enumerate(items):
             is_last: bool = idx == len(items) - 1
             connector: str = "└── " if is_last else "├── "
