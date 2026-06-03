@@ -30,7 +30,7 @@ def main() -> None:
     try:
         run(sys.argv[1:])
     except KeyboardInterrupt:
-        print("\nInterrupted", file=sys.stderr)
+        print("\n[!] Stopped by user", file=sys.stderr)
         sys.exit(130)
     except Exception as exc:
         print(f"\nFatal error: {exc}", file=sys.stderr)

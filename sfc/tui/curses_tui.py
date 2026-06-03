@@ -206,7 +206,7 @@ class CursesEngine(Engine):
         except curses.error:
             return KeyEvent(Key.UNKNOWN)
         except KeyboardInterrupt:
-            return KeyEvent(Key.ESCAPE)
+            raise
 
         if isinstance(ch, str):
             if len(ch) == 1:
@@ -277,7 +277,7 @@ class CursesEngine(Engine):
                 continue
             except KeyboardInterrupt:
                 curses.curs_set(0)
-                return None
+                raise
 
             if isinstance(ch, str):
                 o = ord(ch) if len(ch) == 1 else 0

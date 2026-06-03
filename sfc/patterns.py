@@ -14,6 +14,8 @@ from pathlib import Path
 #  DEFAULT IGNORE SETS (immutable)
 # ════════════════════════════════════════════════════════════════════
 
+SFCIGNORE_FILE: str = ".sfcignore"
+
 DEFAULT_IGNORE_DIRS: frozenset[str] = frozenset({
     # Python
     "__pycache__", ".mypy_cache", ".pytest_cache", ".tox", ".nox",
@@ -32,6 +34,8 @@ DEFAULT_IGNORE_DIRS: frozenset[str] = frozenset({
 DEFAULT_IGNORE_FILES: frozenset[str] = frozenset({
     # OS junk
     ".DS_Store", "Thumbs.db", "desktop.ini",
+    # SFC local ignore file
+    SFCIGNORE_FILE,
     # VCS metadata
     ".gitignore", ".gitattributes", ".gitmodules",
     # Lock files
@@ -67,7 +71,7 @@ DEFAULT_IGNORE_EXTENSIONS: frozenset[str] = frozenset({
 
 # Files that belong to sfc itself — always excluded from collection
 SELF_FILES: frozenset[str] = frozenset({
-    "sfc.py", "sfc.pyz",
+    "sfc.py", "sfc.pyz", SFCIGNORE_FILE,
 })
 
 COLLECTED_PREFIX: str = "collected_"
@@ -144,6 +148,27 @@ HELP_FILTERS: str = """\
 # ════════════════════════════════════════════════════════════════════
 #  RESOLUTION HELPERS
 # ════════════════════════════════════════════════════════════════════
+
+def load_sfcignore(root: Path) -> set[str]:
+    """Load local ignore patterns from ``<root>/.sfcignore``."""
+    fp: Path = root / SFCIGNORE_FILE
+    if not fp.is_file():
+        return set()
+
+    patterns: set[str] = set()
+    try:
+        lines = fp.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return patterns
+
+    for raw in lines:
+        line: str = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        patterns.add(line.rstrip("/\\"))
+
+    return patterns
+
 
 def matches_pattern(rel_path: str, name: str, pattern: str) -> bool:
     """Return *True* if *rel_path* or *name* matches *pattern* (fnmatch).

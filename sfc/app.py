@@ -7,6 +7,7 @@ from pathlib import Path
 from sfc.version import VERSION, APP_TITLE
 from sfc.config import AppConfig, load_config, save_config, load_presets, save_presets
 from sfc.collector import (
+    MaxFilesLimitError,
     get_all_files,
     build_tree,
     write_output,
@@ -25,12 +26,39 @@ from sfc.patterns import (
 from sfc.updater import check_update, apply_update, update_current_binary
 
 
+STOPPED_BY_USER_MESSAGE: str = "\n[!] Stopped by user"
+ROOT_GUARD_MESSAGE: str = (
+    "[!] ERROR: Refusing to scan root or home directory to prevent system hang. "
+    "Use specific project folders."
+)
+
+
+def _exit_stopped_by_user() -> None:
+    print(STOPPED_BY_USER_MESSAGE, file=sys.stderr)
+    sys.exit(130)
+
+
+def _resolve_target_path(target_path: str | Path) -> Path:
+    resolved = Path(target_path).expanduser().resolve()
+    home = Path.home().resolve()
+
+    if (
+        resolved == home
+        or resolved == Path("/").resolve()
+        or resolved == resolved.parent
+    ):
+        print(ROOT_GUARD_MESSAGE, file=sys.stderr)
+        sys.exit(1)
+
+    return resolved
+
+
 # ════════════════════════════════════════════════════════════════════
 #  CLI (NON-INTERACTIVE) COMMANDS
 # ════════════════════════════════════════════════════════════════════
 
 def _cli_all(args: argparse.Namespace, cfg: AppConfig) -> None:
-    root = Path(args.path).resolve()
+    root = _resolve_target_path(args.path)
     if not root.is_dir():
         print(f"❌ Not a directory: {root}")
         return
@@ -46,7 +74,7 @@ def _cli_all(args: argparse.Namespace, cfg: AppConfig) -> None:
 
 
 def _cli_pick(args: argparse.Namespace, cfg: AppConfig) -> None:
-    root = Path(args.path).resolve()
+    root = _resolve_target_path(args.path)
     if not root.is_dir():
         print(f"❌ Not a directory: {root}")
         return
@@ -57,7 +85,7 @@ def _cli_pick(args: argparse.Namespace, cfg: AppConfig) -> None:
         while True:
             try:
                 line = input("  > ").strip()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError:
                 print()
                 break
             if not line:
@@ -84,7 +112,7 @@ def _cli_pick(args: argparse.Namespace, cfg: AppConfig) -> None:
 
 
 def _cli_tree(args: argparse.Namespace, cfg: AppConfig) -> None:
-    root = Path(args.path).resolve()
+    root = _resolve_target_path(args.path)
     if not root.is_dir():
         print(f"❌ Not a directory: {root}")
         return
@@ -107,7 +135,7 @@ def _cli_tree(args: argparse.Namespace, cfg: AppConfig) -> None:
 
 
 def _cli_find(args: argparse.Namespace, cfg: AppConfig) -> None:
-    root = Path(args.path).resolve()
+    root = _resolve_target_path(args.path)
     if not root.is_dir():
         print(f"❌ Not a directory: {root}")
         return
@@ -149,7 +177,7 @@ def _cli_from(args: argparse.Namespace, cfg: AppConfig) -> None:
 
 
 def _cli_preset(args: argparse.Namespace, cfg: AppConfig) -> None:
-    root = Path(args.path).resolve()
+    root = _resolve_target_path(args.path)
     presets = load_presets(root)
     pa: list[str] = getattr(args, "preset_args", []) or []
     if not pa:
@@ -299,7 +327,7 @@ class App:
         try:
             self._main_menu()
         except KeyboardInterrupt:
-            pass
+            raise
         finally:
             self.engine.stop()
 
@@ -1154,7 +1182,18 @@ class App:
 # ════════════════════════════════════════════════════════════════════
 
 def run(argv: list[str] | None = None) -> None:
-    """Main entry point — dispatches to CLI or interactive TUI."""
+    """Main entry point with user-friendly interruption/errors."""
+    try:
+        _run(argv)
+    except KeyboardInterrupt:
+        _exit_stopped_by_user()
+    except MaxFilesLimitError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+
+
+def _run(argv: list[str] | None = None) -> None:
+    """Dispatch to CLI or interactive TUI."""
     if argv is None:
         argv = sys.argv[1:]
 
@@ -1162,7 +1201,7 @@ def run(argv: list[str] | None = None) -> None:
 
     # No args → interactive
     if not argv:
-        root = Path(".").resolve()
+        root = _resolve_target_path(".")
         App(root, cfg).run()
         return
 
@@ -1182,7 +1221,7 @@ def run(argv: list[str] | None = None) -> None:
         cfg.strip_explanations = True
 
     if not args.cmd:
-        root = Path(args.path).resolve()
+        root = _resolve_target_path(args.path)
         extra = set(args.ignore) if args.ignore else None
         cfg.output = args.output
         cfg.max_chars = args.chars
