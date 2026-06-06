@@ -59,8 +59,7 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 ### One-line Install (Linux / macOS)
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh)
-
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh)"
 ```
 
 The installer fetches the latest GitHub Release from `Heysh1n/sfc`, parses the `sfc.pyz` asset, installs it directly to `~/.local/bin/sfc` and marks it executable.
