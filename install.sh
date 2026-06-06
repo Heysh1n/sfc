@@ -60,24 +60,31 @@ error() {
 }
 
 logo() {
-    printf "  %s███████╗ ███████╗ ██████╗%s\n" "$BRIGHT_WHITE" "$RESET"
-    printf "  %s██╔════╝ ██╔════╝██╔════╝%s\n" "$WHITE" "$RESET"
-    printf "  %s███████╗ █████╗  ██║     %s\n" "$MAGENTA" "$RESET"
-    printf "  %s╚════██║ ██╔══╝  ██║     %s\n" "$BRIGHT_MAGENTA" "$RESET"
-    printf "  %s███████║ ██║     ╚██████╗%s\n" "$MAGENTA" "$RESET"
-    printf "  %s╚══════╝ ╚═╝      ╚═════╝%s\n" "$DIM_MAGENTA" "$RESET"
+    PAD="    "
+
+    printf "%s%s███████╗ ███████╗ ██████╗%s\n" "$PAD" "$BRIGHT_WHITE" "$RESET"
+    printf "%s%s██╔════╝ ██╔════╝██╔════╝%s\n" "$PAD" "$WHITE" "$RESET"
+    printf "%s%s███████╗ █████╗  ██║     %s\n" "$PAD" "$MAGENTA" "$RESET"
+    printf "%s%s╚════██║ ██╔══╝  ██║     %s\n" "$PAD" "$BRIGHT_MAGENTA" "$RESET"
+    printf "%s%s███████║ ██║     ╚██████╗%s\n" "$PAD" "$MAGENTA" "$RESET"
+    printf "%s%s╚══════╝ ╚═╝      ╚═════╝%s\n" "$PAD" "$DIM_MAGENTA" "$RESET"
 }
 
 header() {
     clear 2>/dev/null || true
+
+    PAD="    "
+
     printf "\n"
-    printf "%s╭────────────────────────────────────────────╮%s\n" "$MAGENTA" "$RESET"
-    printf "%s│%s              %sSFC Installer   %s            %s  │  %s\n" "$MAGENTA" "$RESET" "$BOLD" "$RESET" "$MAGENTA" "$RESET"
-    printf "%s╰────────────────────────────────────────────╯%s\n" "$MAGENTA" "$RESET"
+    printf "%s%s╭────────────────────────────────────────────╮%s\n" "$PAD" "$MAGENTA" "$RESET"
+    printf "%s%s│%s              %sSFC Installer%s              %s│%s\n" "$PAD" "$MAGENTA" "$RESET" "$BOLD" "$RESET" "$MAGENTA" "$RESET"
+    printf "%s%s╰────────────────────────────────────────────╯%s\n" "$PAD" "$MAGENTA" "$RESET"
+
     printf "\n"
     logo
     printf "\n"
-    printf "      %sSmart File Collector%s\n" "$DIM" "$RESET"
+
+    printf "%s      %sSmart File Collector%s\n" "$PAD" "$DIM" "$RESET"
     printf "\n"
 }
 
