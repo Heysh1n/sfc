@@ -72,7 +72,7 @@ header() {
     clear 2>/dev/null || true
     printf "\n"
     printf "%s╭────────────────────────────────────────────╮%s\n" "$MAGENTA" "$RESET"
-    printf "%s│%s              %sSFC Installer%s       %s  │%s\n" "$MAGENTA" "$RESET" "$BOLD" "$RESET" "$MAGENTA" "$RESET"
+    printf "%s│%s              %sSFC Installer%s            %s  │  %s\n" "$MAGENTA" "$RESET" "$BOLD" "$RESET" "$MAGENTA" "$RESET"
     printf "%s╰────────────────────────────────────────────╯%s\n" "$MAGENTA" "$RESET"
     printf "\n"
     logo
