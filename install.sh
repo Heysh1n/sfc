@@ -60,19 +60,19 @@ error() {
 }
 
 logo() {
-    printf "%s████████╗ ███████╗ ██████╗%s\n" "$BRIGHT_WHITE" "$RESET"
-    printf "%s██╔════╝ ██╔════╝██╔════╝%s\n" "$WHITE" "$RESET"
-    printf "%s███████╗ █████╗  ██║     %s\n" "$MAGENTA" "$RESET"
-    printf "%s╚════██║ ██╔══╝  ██║     %s\n" "$BRIGHT_MAGENTA" "$RESET"
-    printf "%s███████║ ██║     ╚██████╗%s\n" "$MAGENTA" "$RESET"
-    printf "%s╚══════╝ ╚═╝      ╚═════╝%s\n" "$DIM_MAGENTA" "$RESET"
+    printf "%s  ████████╗ ███████╗ ██████╗%s\n" "$BRIGHT_WHITE" "$RESET"
+    printf "%s  ██╔════╝ ██╔════╝██╔════╝%s\n" "$WHITE" "$RESET"
+    printf "%s  ███████╗ █████╗  ██║     %s\n" "$MAGENTA" "$RESET"
+    printf "%s  ╚════██║ ██╔══╝  ██║     %s\n" "$BRIGHT_MAGENTA" "$RESET"
+    printf "%s  ███████║ ██║     ╚██████╗%s\n" "$MAGENTA" "$RESET"
+    printf "%s  ╚══════╝ ╚═╝      ╚═════╝%s\n" "$DIM_MAGENTA" "$RESET"
 }
 
 header() {
     clear 2>/dev/null || true
     printf "\n"
     printf "%s╭────────────────────────────────────────────╮%s\n" "$MAGENTA" "$RESET"
-    printf "%s│%s              %sSFC Installer%s              %s│%s\n" "$MAGENTA" "$RESET" "$BOLD" "$RESET" "$MAGENTA" "$RESET"
+    printf "%s│%s              %sSFC Installer%s       %s  │%s\n" "$MAGENTA" "$RESET" "$BOLD" "$RESET" "$MAGENTA" "$RESET"
     printf "%s╰────────────────────────────────────────────╯%s\n" "$MAGENTA" "$RESET"
     printf "\n"
     logo
