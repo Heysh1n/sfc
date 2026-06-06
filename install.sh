@@ -77,7 +77,7 @@ header() {
 
     printf "\n"
     printf "%s%s╭────────────────────────────────────────────╮%s\n" "$PAD" "$MAGENTA" "$RESET"
-    printf "%s%s│%s              %sSFC Installer%s              %s│%s\n" "$PAD" "$MAGENTA" "$RESET" "$BOLD" "$RESET" "$MAGENTA" "$RESET"
+    printf "%s%s│%s               %sSFC Installer%s                %s│%s\n" "$PAD" "$MAGENTA" "$RESET" "$BOLD" "$RESET" "$MAGENTA" "$RESET"
     printf "%s%s╰────────────────────────────────────────────╯%s\n" "$PAD" "$MAGENTA" "$RESET"
 
     printf "\n"
