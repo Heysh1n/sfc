@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
 from pathlib import Path
 
 from sfc.version import VERSION, APP_TITLE
@@ -23,7 +24,14 @@ from sfc.patterns import (
     HELP_PRESETS,
     HELP_FILTERS,
 )
-from sfc.updater import check_update, apply_update, update_current_binary
+from sfc.updater import (
+    apply_update,
+    check_update,
+    check_update_background,
+    get_background_update_version,
+    is_background_update_check_done,
+    update_current_binary,
+)
 
 
 STOPPED_BY_USER_MESSAGE: str = "\n[!] Stopped by user"
@@ -31,6 +39,8 @@ ROOT_GUARD_MESSAGE: str = (
     "[!] ERROR: Refusing to scan root or home directory to prevent system hang. "
     "Use specific project folders."
 )
+_BACKGROUND_UPDATE_THREAD_STARTED: bool = False
+_BACKGROUND_UPDATE_THREAD_LOCK = threading.Lock()
 
 
 def _exit_stopped_by_user() -> None:
@@ -51,6 +61,26 @@ def _resolve_target_path(target_path: str | Path) -> Path:
         sys.exit(1)
 
     return resolved
+
+
+def _start_background_update_check() -> None:
+    """Launch the silent update check once for interactive TUI sessions."""
+    global _BACKGROUND_UPDATE_THREAD_STARTED
+
+    with _BACKGROUND_UPDATE_THREAD_LOCK:
+        if _BACKGROUND_UPDATE_THREAD_STARTED:
+            return
+        _BACKGROUND_UPDATE_THREAD_STARTED = True
+
+    try:
+        thread = threading.Thread(
+            target=check_update_background,
+            name="sfc-update-check",
+            daemon=True,
+        )
+        thread.start()
+    except Exception:
+        pass
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -333,6 +363,13 @@ class App:
 
     # ── Main Menu ──────────────────────────────────────────────────
 
+    def _update_menu_label(self) -> str:
+        remote = get_background_update_version()
+        if not remote:
+            return "🔄  Check for updates"
+        shown = remote if remote.lower().startswith("v") else f"v{remote}"
+        return f"⭐  UPDATE AVAILABLE: {shown}"
+
     def _main_menu(self) -> None:
         from sfc.tui.base import MenuItem, Key, KeyEvent
 
@@ -354,7 +391,7 @@ class App:
                 MenuItem("🗂️   View tree", "tree"),
                 MenuItem("⚙️   Settings", "settings"),
                 MenuItem("📖  Help", "help"),
-                MenuItem("🔄  Check for updates", "update"),
+                MenuItem(self._update_menu_label(), "update"),
                 MenuItem("─" * 30, "_sep1", enabled=False),
                 MenuItem(
                     f"✅  Collect selected ({sel_count})",
@@ -385,9 +422,18 @@ class App:
                     raise _ExitApp
                 return None
 
+            def on_tick(menu_items: list[MenuItem]) -> bool:
+                update_label = self._update_menu_label()
+                for menu_item in menu_items:
+                    if menu_item.value == "update":
+                        menu_item.label = update_label
+                        break
+                return not is_background_update_check_done()
+
             try:
                 chosen = self.engine.menu_loop(
-                    title, items, footer, on_select, on_key=on_key,
+                    title, items, footer, on_select,
+                    on_key=on_key, on_tick=on_tick,
                 )
             except _ExitApp:
                 return
@@ -1202,6 +1248,7 @@ def _run(argv: list[str] | None = None) -> None:
     # No args → interactive
     if not argv:
         root = _resolve_target_path(".")
+        _start_background_update_check()
         App(root, cfg).run()
         return
 
@@ -1225,6 +1272,7 @@ def _run(argv: list[str] | None = None) -> None:
         extra = set(args.ignore) if args.ignore else None
         cfg.output = args.output
         cfg.max_chars = args.chars
+        _start_background_update_check()
         App(root, cfg, extra).run()
         return
 

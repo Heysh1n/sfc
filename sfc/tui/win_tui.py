@@ -13,6 +13,7 @@ import ctypes.wintypes
 import msvcrt
 import os
 import sys
+import time
 
 from sfc.tui.base import (
     Engine,
@@ -124,7 +125,14 @@ class WinEngine(Engine):
     #  INPUT
     # ════════════════════════════════════════════════════════════════
 
-    def get_key(self) -> KeyEvent:
+    def get_key(self, timeout: float | None = None) -> KeyEvent:
+        if timeout is not None:
+            deadline = time.monotonic() + timeout
+            while not msvcrt.kbhit():
+                if time.monotonic() >= deadline:
+                    return KeyEvent(Key.UNKNOWN)
+                time.sleep(0.025)
+
         try:
             ch: str = msvcrt.getwch()
         except KeyboardInterrupt:

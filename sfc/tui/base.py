@@ -203,7 +203,7 @@ class Engine(ABC):
     # ── Input ──
 
     @abstractmethod
-    def get_key(self) -> KeyEvent: ...
+    def get_key(self, timeout: float | None = None) -> KeyEvent: ...
 
     @abstractmethod
     def prompt(self, label: str, prefill: str = "") -> str | None: ...
@@ -264,6 +264,7 @@ class Engine(ABC):
         on_select: Callable[[MenuItem, int], bool | None] | None = None,
         on_check: Callable[[MenuItem, int], None] | None = None,
         on_key: Callable[[KeyEvent, list[MenuItem], int], int | None] | None = None,
+        on_tick: Callable[[list[MenuItem]], bool | None] | None = None,
     ) -> MenuItem | None:
         if not items:
             return None
@@ -277,8 +278,12 @@ class Engine(ABC):
                 break
 
         footer_lines: list[str] = list(footer) if footer else []
+        tick_enabled = on_tick is not None
 
         while True:
+            if tick_enabled and on_tick is not None:
+                tick_enabled = on_tick(items) is not False
+
             rows, cols = self.get_size()
 
             header_rows = self.header_height(title)
@@ -297,7 +302,9 @@ class Engine(ABC):
             full_footer = list(footer_lines) + [FOOTER_TEXT]
             self.draw_footer(full_footer)
 
-            ev: KeyEvent = self.get_key()
+            ev: KeyEvent = self.get_key(
+                timeout=0.25 if tick_enabled else None
+            )
 
             if on_key is not None:
                 new_cur = on_key(ev, items, cursor)

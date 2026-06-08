@@ -6,6 +6,7 @@ import json
 import os
 import stat
 import sys
+import threading
 import urllib.request
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -27,17 +28,21 @@ class UpdateApplyResult(NamedTuple):
 
 
 _TIMEOUT: int = 20
+_BACKGROUND_TIMEOUT: float = 1.5
 GITHUB_RELEASES_API: str = "https://api.github.com/repos/Heysh1n/sfc/releases/latest"
 _ASSET_NAME: str = "sfc.pyz"
 _USER_AGENT: str = "sfc-updater"
+_BACKGROUND_UPDATE_VERSION: str = ""
+_BACKGROUND_UPDATE_DONE: bool = False
+_BACKGROUND_UPDATE_LOCK = threading.Lock()
 
 
 def _request(url: str) -> urllib.request.Request:
     return urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
 
 
-def _fetch_json(url: str) -> dict[str, Any]:
-    with urllib.request.urlopen(_request(url), timeout=_TIMEOUT) as resp:
+def _fetch_json(url: str, timeout: float = _TIMEOUT) -> dict[str, Any]:
+    with urllib.request.urlopen(_request(url), timeout=timeout) as resp:
         raw = resp.read().decode("utf-8")
     data = json.loads(raw)
     if not isinstance(data, dict):
@@ -111,6 +116,35 @@ def check_update() -> UpdateCheckResult:
         current_version=__version__,
         error="",
     )
+
+
+def check_update_background() -> None:
+    """Silently check the latest release and cache its version if newer."""
+    global _BACKGROUND_UPDATE_DONE, _BACKGROUND_UPDATE_VERSION
+
+    try:
+        release = _fetch_json(GITHUB_RELEASES_API, timeout=_BACKGROUND_TIMEOUT)
+        remote = str(release.get("tag_name", "")).strip()
+        if remote and _is_newer(remote, __version__):
+            with _BACKGROUND_UPDATE_LOCK:
+                _BACKGROUND_UPDATE_VERSION = remote
+    except Exception:
+        pass
+    finally:
+        with _BACKGROUND_UPDATE_LOCK:
+            _BACKGROUND_UPDATE_DONE = True
+
+
+def get_background_update_version() -> str:
+    """Return the cached newer release version found by the background check."""
+    with _BACKGROUND_UPDATE_LOCK:
+        return _BACKGROUND_UPDATE_VERSION
+
+
+def is_background_update_check_done() -> bool:
+    """Return whether the background update check has finished."""
+    with _BACKGROUND_UPDATE_LOCK:
+        return _BACKGROUND_UPDATE_DONE
 
 
 def self_update() -> UpdateApplyResult:

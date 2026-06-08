@@ -199,14 +199,19 @@ class CursesEngine(Engine):
     #  INPUT
     # ════════════════════════════════════════════════════════════════
 
-    def get_key(self) -> KeyEvent:
+    def get_key(self, timeout: float | None = None) -> KeyEvent:
         assert self._scr is not None
+        if timeout is not None:
+            self._scr.timeout(max(0, int(timeout * 1000)))
         try:
             ch = self._scr.get_wch()
         except curses.error:
             return KeyEvent(Key.UNKNOWN)
         except KeyboardInterrupt:
             raise
+        finally:
+            if timeout is not None:
+                self._scr.timeout(-1)
 
         if isinstance(ch, str):
             if len(ch) == 1:

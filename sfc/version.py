@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__version__ = "4.8.0"
+__version__ = "4.9.0"
 VERSION: str = __version__
 APP_NAME: str = "SFC"
 APP_TITLE: str = "Smart File Collector"
