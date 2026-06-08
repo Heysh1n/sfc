@@ -2,7 +2,8 @@
 set -eu
 
 INSTALL_DIR="$HOME/.local/bin"
-API_URL="https://api.github.com/repos/Heysh1n/sfc/releases/latest"
+RELEASES_API_URL="https://api.github.com/repos/Heysh1n/sfc/releases"
+API_URL="$RELEASES_API_URL/latest"
 USER_AGENT="sfc-installer"
 
 # ── Colors ─────────────────────────────────────────────
@@ -101,7 +102,49 @@ pause() {
 }
 
 # ── Release fetch ──────────────────────────────────────
+normalize_version_input() {
+    VERSION_INPUT="$1"
+
+    case "$VERSION_INPUT" in
+        "")
+            printf "latest"
+            ;;
+        latest|LATEST)
+            printf "latest"
+            ;;
+        v*)
+            printf "%s" "$VERSION_INPUT"
+            ;;
+        [0-9]*)
+            printf "v%s" "$VERSION_INPUT"
+            ;;
+        *)
+            printf "%s" "$VERSION_INPUT"
+            ;;
+    esac
+}
+
+release_api_url() {
+    REQUESTED_VERSION="$1"
+
+    if [ "$REQUESTED_VERSION" = "latest" ]; then
+        printf "%s" "$API_URL"
+        return
+    fi
+
+    ENCODED_TAG="$(python3 - "$REQUESTED_VERSION" <<'PY'
+from urllib.parse import quote
+import sys
+
+print(quote(sys.argv[1], safe=""))
+PY
+)"
+
+    printf "%s/tags/%s" "$RELEASES_API_URL" "$ENCODED_TAG"
+}
+
 fetch_release_info() {
+    REQUESTED_VERSION="$(normalize_version_input "${1:-latest}")"
     TMP_JSON="$(mktemp)"
 
     cleanup() {
@@ -110,10 +153,16 @@ fetch_release_info() {
 
     trap cleanup EXIT INT TERM
 
-    info "Fetching latest release data..."
+    RELEASE_URL="$(release_api_url "$REQUESTED_VERSION")"
 
-    if ! curl -fsSL -H "User-Agent: $USER_AGENT" "$API_URL" -o "$TMP_JSON"; then
-        error "Failed to fetch latest release data"
+    if [ "$REQUESTED_VERSION" = "latest" ]; then
+        info "Fetching latest release data..."
+    else
+        info "Fetching release data for $REQUESTED_VERSION..."
+    fi
+
+    if ! curl -fsSL -H "User-Agent: $USER_AGENT" "$RELEASE_URL" -o "$TMP_JSON"; then
+        error "Failed to fetch release data"
         exit 1
     fi
 
@@ -130,19 +179,20 @@ try:
     tag = data.get("tag_name")
 
     if not tag:
-        print("ERROR|latest release tag_name not found")
+        print("ERROR|release tag_name not found")
         sys.exit(1)
 
-    expected_name = f"sfc.{tag}.pyz"
+    expected_names = [f"sfc.{tag}.pyz", "sfc.pyz"]
     assets = data.get("assets", [])
 
-    for asset in assets:
-        name = asset.get("name")
-        url = asset.get("browser_download_url")
+    for expected_name in expected_names:
+        for asset in assets:
+            name = asset.get("name")
+            url = asset.get("browser_download_url")
 
-        if name == expected_name and url:
-            print(f"OK|{tag}|{expected_name}|{url}")
-            sys.exit(0)
+            if name == expected_name and url:
+                print(f"OK|{tag}|{expected_name}|{url}")
+                sys.exit(0)
 
     asset_names = ", ".join(
         asset.get("name", "unknown")
@@ -152,7 +202,8 @@ try:
     if not asset_names:
         asset_names = "no assets"
 
-    print(f"ERROR|{expected_name} asset not found in latest release. Found: {asset_names}")
+    wanted = " or ".join(expected_names)
+    print(f"ERROR|{wanted} asset not found in release {tag}. Found: {asset_names}")
     sys.exit(1)
 
 except Exception as e:
@@ -173,19 +224,25 @@ PY
     ASSET_NAME="$(printf "%s" "$RELEASE_INFO" | cut -d'|' -f3)"
     DOWNLOAD_URL="$(printf "%s" "$RELEASE_INFO" | cut -d'|' -f4-)"
 
-    success "Latest release: $TAG"
+    success "Release: $TAG"
     success "Asset found: $ASSET_NAME"
 }
 
 # ── Install ────────────────────────────────────────────
 install_sfc() {
+    REQUESTED_VERSION="$(normalize_version_input "${1:-latest}")"
+
     require_cmd curl
     require_cmd python3
 
     header
-    printf "%sInstalling / Updating SFC%s\n\n" "$BOLD" "$RESET"
+    if [ "$REQUESTED_VERSION" = "latest" ]; then
+        printf "%sInstalling / Updating SFC%s\n\n" "$BOLD" "$RESET"
+    else
+        printf "%sInstalling SFC %s%s\n\n" "$BOLD" "$REQUESTED_VERSION" "$RESET"
+    fi
 
-    fetch_release_info
+    fetch_release_info "$REQUESTED_VERSION"
 
     printf "\n"
     info "Install path: $INSTALL_DIR/sfc"
@@ -229,6 +286,54 @@ install_sfc() {
     fi
 }
 
+install_specific_version() {
+    header
+    printf "%sInstall specific SFC version%s\n\n" "$BOLD" "$RESET"
+
+    printf "Enter release tag/version, for example:\n"
+    printf "  %sv4.9.0%s or %s4.9.0%s\n\n" "$BRIGHT_MAGENTA" "$RESET" "$BRIGHT_MAGENTA" "$RESET"
+    printf "%sVersion:%s " "$BOLD" "$RESET"
+
+    read -r VERSION_CHOICE
+
+    if [ -z "$VERSION_CHOICE" ]; then
+        warn "Cancelled"
+        pause
+        return
+    fi
+
+    install_sfc "$VERSION_CHOICE"
+}
+
+uninstall_sfc() {
+    header
+    printf "%sUninstall SFC%s\n\n" "$BOLD" "$RESET"
+
+    info "Install path: $INSTALL_DIR/sfc"
+
+    if [ ! -f "$INSTALL_DIR/sfc" ]; then
+        warn "SFC is not installed at this path"
+        pause
+        return
+    fi
+
+    printf "\n"
+    printf "%sRemove SFC from this system? [y/N]:%s " "$BOLD" "$RESET"
+    read -r CONFIRM_REMOVE
+
+    case "$CONFIRM_REMOVE" in
+        y|Y|yes|YES)
+            rm -f "$INSTALL_DIR/sfc"
+            success "Removed $INSTALL_DIR/sfc"
+            ;;
+        *)
+            info "Cancelled"
+            ;;
+    esac
+
+    pause
+}
+
 show_location() {
     header
     printf "%sInstall location%s\n\n" "$BOLD" "$RESET"
@@ -249,9 +354,11 @@ show_menu() {
 
         printf "%sSelect action:%s\n\n" "$BOLD" "$RESET"
 
-        printf "  %s1%s) %sInstall / Update SFC locally%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
-        printf "  %s2%s) %sShow install location%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
-        printf "  %s3%s) %sExit%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s1%s) %sInstall / Update latest SFC%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s2%s) %sInstall specific version%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s3%s) %sShow install location%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s4%s) %sUninstall SFC%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s5%s) %sExit%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
 
         printf "\n"
         printf "%sChoice:%s " "$BOLD" "$RESET"
@@ -260,14 +367,22 @@ show_menu() {
 
         case "$ACTION" in
             1)
-                install_sfc
+                install_sfc latest
                 printf "\n"
                 exit 0
                 ;;
             2)
+                install_specific_version
+                printf "\n"
+                exit 0
+                ;;
+            3)
                 show_location
                 ;;
-            3|0|q|Q)
+            4)
+                uninstall_sfc
+                ;;
+            5|0|q|Q)
                 printf "\n"
                 info "Exit."
                 exit 0

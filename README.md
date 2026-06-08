@@ -1,4 +1,18 @@
-# 🔧 Smart File Collector (sfc)
+### 🛑 Критик
+
+Ты опять притащил старый кусок текста с версией 4.7.0 и роудмапом ветки 5.x, которую мы только что договорились похоронить в этом репозитории. Если ты архивируешь проект, роудмап должен лететь в мусорку — никаких "Upcoming in v5.x" в бесплатной версии быть не может.
+
+И версия теперь `4.9.0`, а не `4.7.0`. Я вычистил твой старый мусор, обновил бейджи, вшил актуальную информацию по `make uninstall` и добавил плашку про студента и SFCP. Лицензию не трогал.
+
+### ⚙️ Ассистент
+
+Копируй, делай `git commit --amend` (или новый коммит) и пушь. На этом с опенсурсом всё.
+
+```markdown
+# 🔧 Smart File Collector (sfc) [ARCHIVED]
+
+> **⚠️ NOTICE: Active development has moved to SFCP (Smart File Collector PRO).**
+> Version 4.9.0 is the final, rock-solid release of the free open-source core. 
 
 A zero-dependency CLI/TUI tool that collects project source code into a single
 structured text file — built specifically for feeding codebases into AI chats
@@ -7,7 +21,26 @@ structured text file — built specifically for feeding codebases into AI chats
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#)
-[![Version](https://img.shields.io/badge/version-4.7.0-cyan.svg)](#)
+[![Version](https://img.shields.io/badge/version-4.9.0-cyan.svg)](#)
+[![Status](https://img.shields.io/badge/status-archived-red.svg)](#)
+
+---
+
+## 💎 Introducing SFCP (Smart File Collector PRO)
+
+Why archived? Honestly, I'm a university student, and tuition bills don't pay themselves. 😅 
+
+I've built a massive upgrade called **SFCP**. It receives daily updates, premium support, and transforms this simple collector into a bi-directional AI workflow engine. 
+
+**Exclusive SFCP Features:**
+* **`sfcp scaffold`**: Feed it an ASCII tree from ChatGPT, and it automatically builds the folder/file structure on your disk.
+* **Smart Export Formats**: Export code directly to valid Markdown or JSON payloads for API integrations.
+* **Safe-Mode Environment**: Includes your `.env` structure but scrubs the actual secrets (`DB_PASS=***REDACTED***`).
+* **Regex Mass Rename**: Bulk file renaming built specifically to respect AI-generated restructuring.
+* **Windows Native Integration**: Right-click any folder in Windows Explorer -> "Collect with SFCP" + one-line PowerShell install.
+* **Prompt Engine**: Built-in developer prompt generation on the fly.
+
+**👉 [Get SFCP here (Support a student!)](https://life-xp.ru)**
 
 ---
 
@@ -28,6 +61,7 @@ sfc
 # → Select files with arrow keys + space
 # → Press Enter → structured output + clipboard
 
+
 ```
 
 One command. Smart filtering. Auto-split. Clipboard copy. Done.
@@ -42,10 +76,12 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 | **Cross-platform** | Linux, macOS, Windows. Native TUI on all three. |
 | **Interactive TUI** | Arrow-key navigation, checkboxes, scrollable lists via `curses`/`msvcrt`. |
 | **Smart ignoring** | Built-in ignore rules. Fully customisable in Settings. |
+| **Stability Guards** | Hard-capped directory traversal and binary file skipping. |
+| **Silent Updater** | Asynchronous background update checking without freezing the TUI. |
 | **Project Size Report** | Displays total project size and percentage weight of dependency folders. |
 | **Limited-Depth Tree** | Truncate tree output with `-l` and automatically calculate skipped folder contents. |
 | **Auto-split** | Splits output into parts when exceeding character limits. |
-| **Native clipboard** | `pbcopy` · `clip.exe` · `wl-copy` · `xclip` · `xsel` — no pyperclip. |Анонимизатор .env (Сейф-мод):
+| **Native clipboard** | `pbcopy` · `clip.exe` · `wl-copy` · `xclip` · `xsel` — no pyperclip. |
 | **Presets** | Save & reuse file selections per project. |
 | **Dynamic Self-Updater** | Pulls latest `sfc.pyz` release binaries directly from GitHub API. |
 | **Persistent config** | Settings saved to `~/.config/sfc/cfg.setting.json`. |
@@ -59,17 +95,19 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 ### One-line Install (Linux / macOS)
 
 ```bash
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh)"
+sh -c "$(curl -fsSL [https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh](https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh))"
+
 ```
 
-The installer fetches the latest GitHub Release from `Heysh1n/sfc`, parses the `sfc.pyz` asset, installs it directly to `~/.local/bin/sfc` and marks it executable.
+The installer can fetch the latest GitHub Release or a specific release tag from `Heysh1n/sfc`, parses the `sfc.pyz` asset, installs it directly to `~/.local/bin/sfc` and marks it executable.
 
 ### From Source
 
 ```bash
-git clone https://github.com/Heysh1n/sfc.git
+git clone [https://github.com/Heysh1n/sfc.git](https://github.com/Heysh1n/sfc.git)
 cd sfc
 python3 -m sfc
+
 
 ```
 
@@ -82,6 +120,10 @@ make build
 # Install globally to ~/.local/bin/sfc
 make local-install
 
+# Remove ~/.local/bin/sfc
+make uninstall
+
+
 ```
 
 **Clipboard Prerequisites (Linux only):**
@@ -91,6 +133,7 @@ make local-install
 sudo apt install wl-clipboard
 # X11
 sudo apt install xclip
+
 
 ```
 
@@ -102,6 +145,7 @@ python -m sfc
 # Build zipapp manually
 python build.py
 python sfc.pyz
+
 
 ```
 
@@ -115,12 +159,13 @@ python sfc.pyz
 sfc
 # or if running raw source: python3 -m sfc
 
+
 ```
 
 Opens a full-screen terminal interface:
 
 ```text
-  ━━━ 🔧 Smart File Collector v4.7.0 ━━━
+  ━━━ 🔧 Smart File Collector v4.9.0 ━━━
   📂 Project: sfc  │  📄 Files: 19
 ────────────────────────────────────────────────────────────
  ▸ 📂  Browse & Select
@@ -142,6 +187,7 @@ Opens a full-screen terminal interface:
    ↑↓:navigate  ENTER:select  q:quit
  Made with ❤️ by Heysh1n
 
+
 ```
 
 ---
@@ -154,6 +200,7 @@ CLI analysis automatically runs and prints project sizes before command output e
 Total project size: 14.2M
 Dependency [node_modules]: 8.4M (59.1%)
 Dependency [.venv]: 3.1M (21.8%)
+
 
 ```
 
@@ -200,6 +247,7 @@ Use `-l` / `--level` to prevent long terminal or context spans when running proj
 sfc tree -l 1
 sfc tree --level 2
 
+
 ```
 
 When a directory layer reaches the limit, `sfc` stops traversing deeper and leverages `Path.rglob()` to print a condensed summary:
@@ -212,6 +260,7 @@ When a directory layer reaches the limit, `sfc` stops traversing deeper and leve
 ├── 📂 docs/ (empty)
 ├── 📄 README.md
 └── 📄 pyproject.toml
+
 
 ```
 
@@ -234,13 +283,14 @@ When enabled (`--strip` or via TUI Settings), it wipes:
 ```bash
 sfc --update
 
+
 ```
 
 The dynamic updater executes under the following flow:
 
 1. Queries the GitHub API: `https://api.github.com/repos/Heysh1n/sfc/releases/latest` using a mandatory `User-Agent: sfc-updater` header.
-2. Extracts `tag_name`, automatically stripping any `v` prefix (`v4.7.0` -> `4.7.0`).
-3. Formats versions into integer tuples to perform strict SemVer comparison (`4.10.0` > `4.7.0`).
+2. Extracts `tag_name`, automatically stripping any `v` prefix (`v4.9.0` -> `4.9.0`).
+3. Formats versions into integer tuples to perform strict SemVer comparison (`4.10.0` > `4.9.0`).
 4. Locates the `sfc.pyz` build asset, downloads it into a localized `<current-binary>.tmp` file, and uses an atomic `os.replace()` swap before applying executable permissions (`0o755`).
 
 ---
@@ -257,7 +307,7 @@ sfc/
 └── sfc/
     ├── __init__.py      # Package marker
     ├── __main__.py      # Entry point (main:cli mapping)
-    ├── version.py       # Version storage (__version__ = "4.7.0")
+    ├── version.py       # Version storage (__version__ = "4.9.0")
     ├── patterns.py      # Default ignores, glob helpers
     ├── config.py        # Persistent JSON config
     ├── collector.py     # File scanner, AST comment killer, tree, sizes
@@ -270,28 +320,8 @@ sfc/
         ├── curses_tui.py # Linux/macOS engine
         └── win_tui.py   # Windows engine
 
+
 ```
-
----
-
-## 🗺️ Roadmap (Upcoming in v5.x)
-
-Future releases are mapped out to evolve `sfc` into a bi-directional AI workflow engine without sacrificing its lightweight, zero-dependency nature.
-
-### 🚀 v5.1.0: Smart QoL Update
-
-* **Fuzzy Matching:** Typo correction for CLI commands (e.g., `sfc pck` auto-resolves to `pick`).
-* **Safe-Mode Env Parser:** `--safe-env` flag to include `.env` file structure in the context while dynamically scrubbing sensitive values (e.g., `DB_PASS=***REDACTED***`).
-
-### 🚀 v5.3.0: The AI I/O Bridge
-
-* **Export Formats:** `--format <txt|md|json>` support to generate valid Markdown or machine-readable JSON payloads for API integrations.
-* **Scaffold Command:** `sfc scaffold` to parse ASCII directory trees from AI chat outputs (via clipboard or stdin) and automatically generate the local folder and empty file structure.
-
-### 🚀 v5.5.0: The Mutator
-
-* **Mass Rename:** `sfc rename <pattern> <replacement>` for bulk regex-based file renaming.
-* **Strict Safe-Guards:** Runs strictly in `--dry-run` by default. Requires `--apply` to execute file system mutations, fully respecting existing `sfc` ignore rules to protect dependency folders.
 
 ---
 

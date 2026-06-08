@@ -1,4 +1,4 @@
-.PHONY: build local-install zipapp clean help
+.PHONY: build local-install uninstall zipapp clean help
 
 PYTHON ?= python3
 PKG := sfc
@@ -6,11 +6,14 @@ APP := sfc
 PYZ := sfc.pyz
 DIST := dist
 ZIPROOT := .zipapp_root
+INSTALL_DIR := $(HOME)/.local/bin
+INSTALL_PATH := $(INSTALL_DIR)/$(APP)
 
 help:
 	@echo "sfc build targets"
 	@echo "  make build         Build ./sfc.pyz with stdlib zipapp"
 	@echo "  make local-install Install ./sfc.pyz to ~/.local/bin/sfc"
+	@echo "  make uninstall     Remove ~/.local/bin/sfc"
 	@echo "  make zipapp        Build ./dist/sfc.pyz"
 	@echo "  make clean         Remove build artifacts"
 
@@ -26,10 +29,18 @@ build:
 	@echo "Built $(PYZ)"
 
 local-install: build
-	mkdir -p $(HOME)/.local/bin
-	cp $(PYZ) $(HOME)/.local/bin/$(APP)
-	chmod +x $(HOME)/.local/bin/$(APP)
-	@echo "Installed $(HOME)/.local/bin/$(APP)"
+	mkdir -p $(INSTALL_DIR)
+	cp $(PYZ) $(INSTALL_PATH)
+	chmod +x $(INSTALL_PATH)
+	@echo "Installed $(INSTALL_PATH)"
+
+uninstall:
+	@if [ -f "$(INSTALL_PATH)" ]; then \
+		rm -f "$(INSTALL_PATH)"; \
+		echo "Removed $(INSTALL_PATH)"; \
+	else \
+		echo "SFC is not installed at $(INSTALL_PATH)"; \
+	fi
 
 zipapp:
 	@mkdir -p $(DIST)

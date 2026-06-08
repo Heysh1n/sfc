@@ -1,3 +1,16 @@
+## [4.9.0] - 2026-06-08
+### Added
+- **Silent Updater**: Added a non-blocking background update check at TUI startup.
+- **Update Banner**: The main menu now shows an unobtrusive update notice when a newer GitHub release is available.
+- **Installer Version Picker**: The interactive installer can now install either the latest release or a specific version tag.
+- **Uninstall Target**: Added `make uninstall` and an installer uninstall action for removing `~/.local/bin/sfc`.
+
+### Changed
+- **TUI Input Loop**: Added short timed key polling for the main menu so update notices can appear without waiting for a key press.
+
+### Fixed
+- **Offline Startup**: GitHub update checks now use a short timeout and silently ignore network/API failures, so startup remains instant and stable without internet.
+
 ## [4.8.0] - 2026-06-03
 ### Added
 - **Root Guard**: Prevented accidental scanning of root (`/`) and home (`~`) directories.
