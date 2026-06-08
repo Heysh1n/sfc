@@ -29,7 +29,7 @@ I've built a massive upgrade called **SFCP**. It receives daily updates, premium
 * **Windows Native Integration**: Right-click any folder in Windows Explorer -> "Collect with SFCP" + one-line PowerShell install.
 * **Prompt Engine**: Built-in developer prompt generation on the fly.
 
-**👉 [Get SFCP here (Support a student!)](https://life-xp.ru)**
+**👉 [Get SFCP here (Support a student!)](heysh1n.com.tr)**
 
 ---
 
