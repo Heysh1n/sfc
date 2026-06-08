@@ -29,7 +29,7 @@ I've built a massive upgrade called **SFCP**. It receives daily updates, premium
 * **Windows Native Integration**: Right-click any folder in Windows Explorer -> "Collect with SFCP" + one-line PowerShell install.
 * **Prompt Engine**: Built-in developer prompt generation on the fly.
 
-**👉 [Get SFCP here (Support a student!)](heysh1n.com.tr)**
+**👉 [Get SFCP here (Support a student!)](https://heysh1n.com.tr)**
 
 ---
 
@@ -84,7 +84,7 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 ### One-line Install (Linux / macOS)
 
 ```bash
-sh -c "$(curl -fsSL [https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh](https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh))"
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh)"
 
 ```
 
@@ -93,7 +93,7 @@ The installer can fetch the latest GitHub Release or a specific release tag from
 ### From Source
 
 ```bash
-git clone [https://github.com/Heysh1n/sfc.git](https://github.com/Heysh1n/sfc.git)
+git clone https://github.com/Heysh1n/sfc.git
 cd sfc
 python3 -m sfc
 
