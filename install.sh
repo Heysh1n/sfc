@@ -1,10 +1,50 @@
 #!/bin/sh
 set -eu
 
-INSTALL_DIR="$HOME/.local/bin"
-RELEASES_API_URL="https://api.github.com/repos/Heysh1n/sfc/releases"
-API_URL="$RELEASES_API_URL/latest"
+# SFC Installer for Linux / macOS
+# One-line install:
+#   curl -fsSL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh | sh
+
+REPO="Heysh1n/sfc"
+DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/sfc.pyz"
 USER_AGENT="sfc-installer"
+
+# ── Detect OS ──────────────────────────────────────────
+OS_NAME="$(uname -s 2>/dev/null || printf 'unknown')"
+
+case "$OS_NAME" in
+    Linux)
+        INSTALL_DIR="${SFC_INSTALL_DIR:-$HOME/.local/bin}"
+        ;;
+    Darwin)
+        INSTALL_DIR="${SFC_INSTALL_DIR:-/usr/local/bin}"
+        ;;
+    MINGW*|MSYS*|CYGWIN*)
+        # Windows (Git Bash / MSYS2 / Cygwin) — show redirect and exit
+        printf "\n"
+        printf "  It looks like you are running Windows (Git Bash / MSYS2).\n"
+        printf "  This installer is for Linux and macOS only.\n"
+        printf "\n"
+        printf "  For Windows, use PowerShell:\n"
+        printf "\n"
+        printf "    irm https://raw.githubusercontent.com/Heysh1n/sfc/main/install.ps1 | iex\n"
+        printf "\n"
+        exit 0
+        ;;
+    *)
+        printf "\n"
+        printf "  Unknown operating system: %s\n" "$OS_NAME"
+        printf "  This installer supports Linux and macOS.\n"
+        printf "\n"
+        printf "  If you are on Windows, use PowerShell:\n"
+        printf "\n"
+        printf "    irm https://raw.githubusercontent.com/Heysh1n/sfc/main/install.ps1 | iex\n"
+        printf "\n"
+        exit 1
+        ;;
+esac
+
+INSTALL_PATH="$INSTALL_DIR/sfc"
 
 # ── Colors ─────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -78,7 +118,7 @@ header() {
 
     printf "\n"
     printf "%s%s╭────────────────────────────────────────────╮%s\n" "$PAD" "$MAGENTA" "$RESET"
-    printf "%s%s│%s               %sSFC Installer%s                %s│%s\n" "$PAD" "$MAGENTA" "$RESET" "$BOLD" "$RESET" "$MAGENTA" "$RESET"
+    printf "%s%s│%s              %sSFC Installer%s               %s│%s\n" "$PAD" "$MAGENTA" "$RESET" "$BOLD" "$RESET" "$MAGENTA" "$RESET"
     printf "%s%s╰────────────────────────────────────────────╯%s\n" "$PAD" "$MAGENTA" "$RESET"
 
     printf "\n"
@@ -89,6 +129,11 @@ header() {
     printf "\n"
 }
 
+pause() {
+    printf "\n%sPress Enter to continue...%s" "$DIM" "$RESET"
+    read -r _ || true
+}
+
 require_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
         error "Required command not found: $1"
@@ -96,167 +141,109 @@ require_cmd() {
     fi
 }
 
-pause() {
-    printf "\n%sPress Enter to continue...%s" "$DIM" "$RESET"
-    read -r _ || true
-}
+shell_profile_file() {
+    SHELL_NAME="$(basename "${SHELL:-}")"
 
-# ── Release fetch ──────────────────────────────────────
-normalize_version_input() {
-    VERSION_INPUT="$1"
-
-    case "$VERSION_INPUT" in
-        "")
-            printf "latest"
-            ;;
-        latest|LATEST)
-            printf "latest"
-            ;;
-        v*)
-            printf "%s" "$VERSION_INPUT"
-            ;;
-        [0-9]*)
-            printf "v%s" "$VERSION_INPUT"
-            ;;
-        *)
-            printf "%s" "$VERSION_INPUT"
-            ;;
-    esac
-}
-
-release_api_url() {
-    REQUESTED_VERSION="$1"
-
-    if [ "$REQUESTED_VERSION" = "latest" ]; then
-        printf "%s" "$API_URL"
+    if [ "$SHELL_NAME" = "zsh" ]; then
+        printf "%s/.zshrc" "$HOME"
         return
     fi
 
-    ENCODED_TAG="$(python3 - "$REQUESTED_VERSION" <<'PY'
-from urllib.parse import quote
-import sys
+    if [ "$SHELL_NAME" = "bash" ]; then
+        if [ "$OS_NAME" = "Darwin" ]; then
+            printf "%s/.bash_profile" "$HOME"
+        else
+            printf "%s/.bashrc" "$HOME"
+        fi
+        return
+    fi
 
-print(quote(sys.argv[1], safe=""))
-PY
-)"
-
-    printf "%s/tags/%s" "$RELEASES_API_URL" "$ENCODED_TAG"
+    if [ "$OS_NAME" = "Darwin" ]; then
+        printf "%s/.zshrc" "$HOME"
+    else
+        printf "%s/.profile" "$HOME"
+    fi
 }
 
-fetch_release_info() {
-    REQUESTED_VERSION="$(normalize_version_input "${1:-latest}")"
-    TMP_JSON="$(mktemp)"
+path_contains_install_dir() {
+    case ":$PATH:" in
+        *":$INSTALL_DIR:"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
-    cleanup() {
-        rm -f "$TMP_JSON"
-    }
+add_path_to_profile() {
+    PROFILE_FILE="$(shell_profile_file)"
+    PATH_LINE="export PATH=\"$INSTALL_DIR:\$PATH\""
 
-    trap cleanup EXIT INT TERM
+    mkdir -p "$(dirname "$PROFILE_FILE")"
+    touch "$PROFILE_FILE"
 
-    RELEASE_URL="$(release_api_url "$REQUESTED_VERSION")"
-
-    if [ "$REQUESTED_VERSION" = "latest" ]; then
-        info "Fetching latest release data..."
-    else
-        info "Fetching release data for $REQUESTED_VERSION..."
+    if grep -F "$INSTALL_DIR" "$PROFILE_FILE" >/dev/null 2>&1; then
+        warn "PATH entry already exists in $PROFILE_FILE"
+        return
     fi
 
-    if ! curl -fsSL -H "User-Agent: $USER_AGENT" "$RELEASE_URL" -o "$TMP_JSON"; then
-        error "Failed to fetch release data"
-        exit 1
-    fi
+    {
+        printf "\n"
+        printf "# SFC\n"
+        printf "%s\n" "$PATH_LINE"
+    } >> "$PROFILE_FILE"
 
-    RELEASE_INFO="$(python3 - "$TMP_JSON" <<'PY'
-import json
-import sys
-
-path = sys.argv[1]
-
-try:
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    tag = data.get("tag_name")
-
-    if not tag:
-        print("ERROR|release tag_name not found")
-        sys.exit(1)
-
-    expected_names = [f"sfc.{tag}.pyz", "sfc.pyz"]
-    assets = data.get("assets", [])
-
-    for expected_name in expected_names:
-        for asset in assets:
-            name = asset.get("name")
-            url = asset.get("browser_download_url")
-
-            if name == expected_name and url:
-                print(f"OK|{tag}|{expected_name}|{url}")
-                sys.exit(0)
-
-    asset_names = ", ".join(
-        asset.get("name", "unknown")
-        for asset in assets
-    )
-
-    if not asset_names:
-        asset_names = "no assets"
-
-    wanted = " or ".join(expected_names)
-    print(f"ERROR|{wanted} asset not found in release {tag}. Found: {asset_names}")
-    sys.exit(1)
-
-except Exception as e:
-    print(f"ERROR|Failed to parse GitHub API response ({e})")
-    sys.exit(1)
-PY
-)"
-
-    STATUS="$(printf "%s" "$RELEASE_INFO" | cut -d'|' -f1)"
-
-    if [ "$STATUS" != "OK" ]; then
-        MSG="$(printf "%s" "$RELEASE_INFO" | cut -d'|' -f2-)"
-        error "$MSG"
-        exit 1
-    fi
-
-    TAG="$(printf "%s" "$RELEASE_INFO" | cut -d'|' -f2)"
-    ASSET_NAME="$(printf "%s" "$RELEASE_INFO" | cut -d'|' -f3)"
-    DOWNLOAD_URL="$(printf "%s" "$RELEASE_INFO" | cut -d'|' -f4-)"
-
-    success "Release: $TAG"
-    success "Asset found: $ASSET_NAME"
+    success "Added $INSTALL_DIR to PATH in $PROFILE_FILE"
+    warn "Restart terminal or run: . $PROFILE_FILE"
 }
 
 # ── Install ────────────────────────────────────────────
 install_sfc() {
-    REQUESTED_VERSION="$(normalize_version_input "${1:-latest}")"
+    header
+    printf "%sInstalling / Updating SFC%s\n\n" "$BOLD" "$RESET"
 
     require_cmd curl
-    require_cmd python3
 
-    header
-    if [ "$REQUESTED_VERSION" = "latest" ]; then
-        printf "%sInstalling / Updating SFC%s\n\n" "$BOLD" "$RESET"
+    info "Platform: $OS_NAME"
+    info "Install path: $INSTALL_PATH"
+
+    # macOS: /usr/local/bin может потребовать sudo
+    if [ "$OS_NAME" = "Darwin" ] && [ ! -w "$INSTALL_DIR" ]; then
+        warn "$INSTALL_DIR is not writable — trying with sudo"
+        mkdir -p "$INSTALL_DIR" 2>/dev/null || sudo mkdir -p "$INSTALL_DIR"
+        USE_SUDO=1
     else
-        printf "%sInstalling SFC %s%s\n\n" "$BOLD" "$REQUESTED_VERSION" "$RESET"
+        mkdir -p "$INSTALL_DIR"
+        USE_SUDO=0
     fi
 
-    fetch_release_info "$REQUESTED_VERSION"
+    TMP_FILE="$(mktemp 2>/dev/null || printf "%s/sfc.tmp" "$INSTALL_DIR")"
 
-    printf "\n"
-    info "Install path: $INSTALL_DIR/sfc"
+    cleanup_tmp() {
+        rm -f "$TMP_FILE" 2>/dev/null || true
+    }
 
-    mkdir -p "$INSTALL_DIR"
+    trap cleanup_tmp EXIT INT TERM
 
-    info "Downloading package..."
+    info "Downloading latest release..."
 
-    if ! curl -fsSL -H "User-Agent: $USER_AGENT" "$DOWNLOAD_URL" -o "$INSTALL_DIR/sfc"; then
+    if ! curl -fL --retry 3 --connect-timeout 15 -H "User-Agent: $USER_AGENT" "$DOWNLOAD_URL" -o "$TMP_FILE"; then
         error "Failed to download SFC"
+        printf "\n"
+        printf "Expected release asset:\n"
+        printf "  %ssfc.pyz%s\n" "$BRIGHT_MAGENTA" "$RESET"
+        printf "\n"
+        printf "Expected URL:\n"
+        printf "  https://github.com/%s/releases/latest/download/sfc.pyz\n" "$REPO"
         exit 1
     fi
 
-    chmod +x "$INSTALL_DIR/sfc"
+    if [ "$USE_SUDO" = "1" ]; then
+        sudo mv "$TMP_FILE" "$INSTALL_PATH"
+        sudo chmod +x "$INSTALL_PATH"
+    else
+        mv "$TMP_FILE" "$INSTALL_PATH"
+        chmod +x "$INSTALL_PATH"
+    fi
+
+    trap - EXIT INT TERM
 
     printf "\n"
     line
@@ -264,54 +251,49 @@ install_sfc() {
     line
     printf "\n"
 
-    if command -v sfc >/dev/null 2>&1; then
+    if path_contains_install_dir && command -v sfc >/dev/null 2>&1; then
         printf "%sRun:%s\n" "$BOLD" "$RESET"
         printf "  %ssfc%s\n" "$BRIGHT_MAGENTA" "$RESET"
-    else
-        warn "$INSTALL_DIR is not in your PATH"
-        printf "\n"
-
-        printf "%sAdd it to PATH:%s\n" "$BOLD" "$RESET"
-        printf "  export PATH=\"\$HOME/.local/bin:\$PATH\"\n"
-        printf "\n"
-
-        printf "%sFor macOS zsh:%s\n" "$BOLD" "$RESET"
-        printf "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.zshrc\n"
-        printf "  source ~/.zshrc\n"
-        printf "\n"
-
-        printf "%sFor Linux bash:%s\n" "$BOLD" "$RESET"
-        printf "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc\n"
-        printf "  source ~/.bashrc\n"
-    fi
-}
-
-install_specific_version() {
-    header
-    printf "%sInstall specific SFC version%s\n\n" "$BOLD" "$RESET"
-
-    printf "Enter release tag/version, for example:\n"
-    printf "  %sv4.9.0%s or %s4.9.0%s\n\n" "$BRIGHT_MAGENTA" "$RESET" "$BRIGHT_MAGENTA" "$RESET"
-    printf "%sVersion:%s " "$BOLD" "$RESET"
-
-    read -r VERSION_CHOICE
-
-    if [ -z "$VERSION_CHOICE" ]; then
-        warn "Cancelled"
-        pause
         return
     fi
 
-    install_sfc "$VERSION_CHOICE"
+    if path_contains_install_dir; then
+        printf "%sRun after restarting terminal:%s\n" "$BOLD" "$RESET"
+        printf "  %ssfc%s\n" "$BRIGHT_MAGENTA" "$RESET"
+        return
+    fi
+
+    warn "$INSTALL_DIR is not in your PATH"
+    printf "\n"
+
+    printf "%sAdd it automatically? [Y/n]:%s " "$BOLD" "$RESET"
+    read -r ADD_PATH || ADD_PATH=""
+
+    case "$ADD_PATH" in
+        n|N|no|NO)
+            printf "\n"
+            printf "%sManual command:%s\n" "$BOLD" "$RESET"
+            printf "  export PATH=\"%s:\$PATH\"\n" "$INSTALL_DIR"
+            printf "\n"
+            printf "%sDirect run:%s\n" "$BOLD" "$RESET"
+            printf "  %s\n" "$INSTALL_PATH"
+            ;;
+        *)
+            add_path_to_profile
+            printf "\n"
+            printf "%sDirect run now:%s\n" "$BOLD" "$RESET"
+            printf "  %s\n" "$INSTALL_PATH"
+            ;;
+    esac
 }
 
 uninstall_sfc() {
     header
     printf "%sUninstall SFC%s\n\n" "$BOLD" "$RESET"
 
-    info "Install path: $INSTALL_DIR/sfc"
+    info "Install path: $INSTALL_PATH"
 
-    if [ ! -f "$INSTALL_DIR/sfc" ]; then
+    if [ ! -f "$INSTALL_PATH" ]; then
         warn "SFC is not installed at this path"
         pause
         return
@@ -319,12 +301,16 @@ uninstall_sfc() {
 
     printf "\n"
     printf "%sRemove SFC from this system? [y/N]:%s " "$BOLD" "$RESET"
-    read -r CONFIRM_REMOVE
+    read -r CONFIRM_REMOVE || CONFIRM_REMOVE=""
 
     case "$CONFIRM_REMOVE" in
         y|Y|yes|YES)
-            rm -f "$INSTALL_DIR/sfc"
-            success "Removed $INSTALL_DIR/sfc"
+            if [ "$OS_NAME" = "Darwin" ] && [ ! -w "$INSTALL_PATH" ]; then
+                sudo rm -f "$INSTALL_PATH"
+            else
+                rm -f "$INSTALL_PATH"
+            fi
+            success "Removed $INSTALL_PATH"
             ;;
         *)
             info "Cancelled"
@@ -337,12 +323,23 @@ uninstall_sfc() {
 show_location() {
     header
     printf "%sInstall location%s\n\n" "$BOLD" "$RESET"
-    info "$INSTALL_DIR/sfc"
 
-    if [ -f "$INSTALL_DIR/sfc" ]; then
+    info "Platform: $OS_NAME"
+    info "$INSTALL_PATH"
+
+    if [ -f "$INSTALL_PATH" ]; then
         success "SFC is installed"
     else
         warn "SFC is not installed yet"
+    fi
+
+    printf "\n"
+    printf "%sPATH status:%s\n" "$BOLD" "$RESET"
+
+    if path_contains_install_dir; then
+        success "$INSTALL_DIR is in PATH"
+    else
+        warn "$INSTALL_DIR is not in PATH"
     fi
 
     pause
@@ -354,35 +351,29 @@ show_menu() {
 
         printf "%sSelect action:%s\n\n" "$BOLD" "$RESET"
 
-        printf "  %s1%s) %sInstall / Update latest SFC%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
-        printf "  %s2%s) %sInstall specific version%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
-        printf "  %s3%s) %sShow install location%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
-        printf "  %s4%s) %sUninstall SFC%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
-        printf "  %s5%s) %sExit%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s1%s) %sInstall / Update SFC locally%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s2%s) %sShow install location%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s3%s) %sUninstall SFC%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s4%s) %sExit%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
 
         printf "\n"
         printf "%sChoice:%s " "$BOLD" "$RESET"
 
-        read -r ACTION
+        read -r ACTION || ACTION="4"
 
         case "$ACTION" in
             1)
-                install_sfc latest
+                install_sfc
                 printf "\n"
                 exit 0
                 ;;
             2)
-                install_specific_version
-                printf "\n"
-                exit 0
-                ;;
-            3)
                 show_location
                 ;;
-            4)
+            3)
                 uninstall_sfc
                 ;;
-            5|0|q|Q)
+            4|0|q|Q)
                 printf "\n"
                 info "Exit."
                 exit 0
@@ -396,4 +387,30 @@ show_menu() {
     done
 }
 
-show_menu
+case "${1:-}" in
+    install|update|--install|-i)
+        install_sfc
+        ;;
+    uninstall|remove|--uninstall)
+        uninstall_sfc
+        ;;
+    location|path|--location|--path)
+        show_location
+        ;;
+    help|--help|-h)
+        printf "SFC Installer\n\n"
+        printf "Usage:\n"
+        printf "  sh install.sh              Open menu\n"
+        printf "  sh install.sh install      Install / update\n"
+        printf "  sh install.sh uninstall    Uninstall\n"
+        printf "  sh install.sh location     Show install location\n"
+        ;;
+    "")
+        show_menu
+        ;;
+    *)
+        error "Unknown option: $1"
+        printf "Run: sh install.sh --help\n"
+        exit 1
+        ;;
+esac
