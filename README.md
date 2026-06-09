@@ -85,10 +85,19 @@ One command. Smart filtering. Auto-split. Clipboard copy. Done.
 
 ```bash
 sh -c "$(curl -fsSL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh)"
-
 ```
 
-The installer can fetch the latest GitHub Release or a specific release tag from `Heysh1n/sfc`, parses the `sfc.pyz` asset, installs it directly to `~/.local/bin/sfc` and marks it executable.
+The installer detects your OS automatically:
+- **Linux** → installs to `~/.local/bin/sfc`
+- **macOS** → installs to `/usr/local/bin/sfc` (already in PATH, `sudo` used if needed)
+
+### One-line Install (Windows — PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/Heysh1n/sfc/main/install.ps1 | iex
+```
+
+Requires Python 3.10+. The installer creates `sfc.bat` in `%USERPROFILE%\.local\bin\` and adds it to your user PATH automatically.
 
 ### From Source
 
@@ -96,8 +105,6 @@ The installer can fetch the latest GitHub Release or a specific release tag from
 git clone https://github.com/Heysh1n/sfc.git
 cd sfc
 python3 -m sfc
-
-
 ```
 
 ### Using Makefile (Linux / macOS)
@@ -111,8 +118,6 @@ make local-install
 
 # Remove ~/.local/bin/sfc
 make uninstall
-
-
 ```
 
 **Clipboard Prerequisites (Linux only):**
@@ -122,20 +127,6 @@ make uninstall
 sudo apt install wl-clipboard
 # X11
 sudo apt install xclip
-
-
-```
-
-### Windows
-
-```powershell
-python -m sfc
-
-# Build zipapp manually
-python build.py
-python sfc.pyz
-
-
 ```
 
 ---
@@ -288,6 +279,8 @@ The dynamic updater executes under the following flow:
 
 ```text
 sfc/
+├── install.sh           # Interactive bash installer (Linux / macOS)
+├── install.ps1          # Interactive PowerShell installer (Windows)
 ├── Makefile             # build (zipapp) / local-install / clean
 ├── build.py             # Python-native build script
 ├── install.sh           # Interactive TUI bash installation script
