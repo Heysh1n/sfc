@@ -6,7 +6,8 @@ set -eu
 #   curl -fsSL https://raw.githubusercontent.com/Heysh1n/sfc/main/install.sh | sh
 
 REPO="Heysh1n/sfc"
-DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/sfc.pyz"
+DEFAULT_DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/sfc.pyz"
+DOWNLOAD_URL="$DEFAULT_DOWNLOAD_URL"
 USER_AGENT="sfc-installer"
 
 # ── Detect OS ──────────────────────────────────────────
@@ -20,26 +21,17 @@ case "$OS_NAME" in
         INSTALL_DIR="${SFC_INSTALL_DIR:-/usr/local/bin}"
         ;;
     MINGW*|MSYS*|CYGWIN*)
-        # Windows (Git Bash / MSYS2 / Cygwin) — show redirect and exit
-        printf "\n"
-        printf "  It looks like you are running Windows (Git Bash / MSYS2).\n"
-        printf "  This installer is for Linux and macOS only.\n"
-        printf "\n"
-        printf "  For Windows, use PowerShell:\n"
-        printf "\n"
-        printf "    irm https://raw.githubusercontent.com/Heysh1n/sfc/main/install.ps1 | iex\n"
-        printf "\n"
+        printf "\n  It looks like you are running Windows (Git Bash / MSYS2).\n"
+        printf "  This installer is for Linux and macOS only.\n\n"
+        printf "  For Windows, use PowerShell:\n\n"
+        printf "    irm https://raw.githubusercontent.com/Heysh1n/sfc/main/install.ps1 | iex\n\n"
         exit 0
         ;;
     *)
-        printf "\n"
-        printf "  Unknown operating system: %s\n" "$OS_NAME"
-        printf "  This installer supports Linux and macOS.\n"
-        printf "\n"
-        printf "  If you are on Windows, use PowerShell:\n"
-        printf "\n"
-        printf "    irm https://raw.githubusercontent.com/Heysh1n/sfc/main/install.ps1 | iex\n"
-        printf "\n"
+        printf "\n  Unknown operating system: %s\n" "$OS_NAME"
+        printf "  This installer supports Linux and macOS.\n\n"
+        printf "  If you are on Windows, use PowerShell:\n\n"
+        printf "    irm https://raw.githubusercontent.com/Heysh1n/sfc/main/install.ps1 | iex\n\n"
         exit 1
         ;;
 esac
@@ -196,15 +188,20 @@ add_path_to_profile() {
 
 # ── Install ────────────────────────────────────────────
 install_sfc() {
+    TARGET_VERSION="${1:-latest}"
     header
-    printf "%sInstalling / Updating SFC%s\n\n" "$BOLD" "$RESET"
+    
+    if [ "$TARGET_VERSION" = "latest" ]; then
+        printf "%sInstalling / Updating SFC (Latest)%s\n\n" "$BOLD" "$RESET"
+    else
+        printf "%sInstalling SFC %s%s\n\n" "$BOLD" "$TARGET_VERSION" "$RESET"
+    fi
 
     require_cmd curl
 
     info "Platform: $OS_NAME"
     info "Install path: $INSTALL_PATH"
 
-    # macOS: /usr/local/bin может потребовать sudo
     if [ "$OS_NAME" = "Darwin" ] && [ ! -w "$INSTALL_DIR" ]; then
         warn "$INSTALL_DIR is not writable — trying with sudo"
         mkdir -p "$INSTALL_DIR" 2>/dev/null || sudo mkdir -p "$INSTALL_DIR"
@@ -222,16 +219,13 @@ install_sfc() {
 
     trap cleanup_tmp EXIT INT TERM
 
-    info "Downloading latest release..."
+    info "Downloading $TARGET_VERSION release..."
 
     if ! curl -fL --retry 3 --connect-timeout 15 -H "User-Agent: $USER_AGENT" "$DOWNLOAD_URL" -o "$TMP_FILE"; then
         error "Failed to download SFC"
         printf "\n"
-        printf "Expected release asset:\n"
-        printf "  %ssfc.pyz%s\n" "$BRIGHT_MAGENTA" "$RESET"
-        printf "\n"
         printf "Expected URL:\n"
-        printf "  https://github.com/%s/releases/latest/download/sfc.pyz\n" "$REPO"
+        printf "  %s\n" "$DOWNLOAD_URL"
         exit 1
     fi
 
@@ -285,6 +279,45 @@ install_sfc() {
             printf "  %s\n" "$INSTALL_PATH"
             ;;
     esac
+}
+
+install_specific_version() {
+    header
+    printf "%sInstall specific SFC version%s\n\n" "$BOLD" "$RESET"
+
+    require_cmd curl
+
+    info "Fetching available versions from GitHub..."
+    
+    # Парсим JSON чисто башем, без Python и jq.
+    VERSIONS="$(curl -fsSL "https://api.github.com/repos/$REPO/releases" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | head -n 10 || true)"
+
+    if [ -z "$VERSIONS" ]; then
+        error "Failed to fetch versions from GitHub API."
+        pause
+        return
+    fi
+
+    printf "\n%sLast 10 available versions:%s\n" "$BOLD" "$RESET"
+    for v in $VERSIONS; do
+        printf "  • %s%s%s\n" "$BRIGHT_MAGENTA" "$v" "$RESET"
+    done
+    printf "\n"
+
+    printf "Type the version tag you want to install (e.g. %s%s%s):\n" "$BRIGHT_MAGENTA" "$(printf "%s" "$VERSIONS" | head -n 1)" "$RESET"
+    printf "%sVersion:%s " "$BOLD" "$RESET"
+    read -r SELECTED_VERSION || SELECTED_VERSION=""
+
+    if [ -z "$SELECTED_VERSION" ]; then
+        warn "Cancelled"
+        pause
+        return
+    fi
+
+    # Переопределяем ссылку под конкретную версию
+    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$SELECTED_VERSION/sfc.pyz"
+    
+    install_sfc "$SELECTED_VERSION"
 }
 
 uninstall_sfc() {
@@ -351,29 +384,36 @@ show_menu() {
 
         printf "%sSelect action:%s\n\n" "$BOLD" "$RESET"
 
-        printf "  %s1%s) %sInstall / Update SFC locally%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
-        printf "  %s2%s) %sShow install location%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
-        printf "  %s3%s) %sUninstall SFC%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
-        printf "  %s4%s) %sExit%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s1%s) %sInstall / Update SFC (Latest)%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s2%s) %sInstall specific version%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s3%s) %sShow install location%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s4%s) %sUninstall SFC%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
+        printf "  %s5%s) %sExit%s\n" "$BRIGHT_MAGENTA" "$RESET" "$WHITE" "$RESET"
 
         printf "\n"
         printf "%sChoice:%s " "$BOLD" "$RESET"
 
-        read -r ACTION || ACTION="4"
+        read -r ACTION || ACTION="5"
 
         case "$ACTION" in
             1)
-                install_sfc
+                DOWNLOAD_URL="$DEFAULT_DOWNLOAD_URL"
+                install_sfc "latest"
                 printf "\n"
                 exit 0
                 ;;
             2)
-                show_location
+                install_specific_version
+                printf "\n"
+                exit 0
                 ;;
             3)
+                show_location
+                ;;
+            4)
                 uninstall_sfc
                 ;;
-            4|0|q|Q)
+            5|0|q|Q)
                 printf "\n"
                 info "Exit."
                 exit 0
@@ -389,7 +429,8 @@ show_menu() {
 
 case "${1:-}" in
     install|update|--install|-i)
-        install_sfc
+        DOWNLOAD_URL="$DEFAULT_DOWNLOAD_URL"
+        install_sfc "latest"
         ;;
     uninstall|remove|--uninstall)
         uninstall_sfc
@@ -401,7 +442,7 @@ case "${1:-}" in
         printf "SFC Installer\n\n"
         printf "Usage:\n"
         printf "  sh install.sh              Open menu\n"
-        printf "  sh install.sh install      Install / update\n"
+        printf "  sh install.sh install      Install / update latest\n"
         printf "  sh install.sh uninstall    Uninstall\n"
         printf "  sh install.sh location     Show install location\n"
         ;;
