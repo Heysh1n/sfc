@@ -46,11 +46,7 @@ def fmt_size(n: int) -> str:
 DEPENDENCY_DIRS: tuple[str, ...] = (
     "node_modules", "venv", ".venv", "target", "build",
 )
-MAX_FILES_LIMIT: int = 50_000
-MAX_FILES_LIMIT_MESSAGE: str = (
-    "[!] Limit of 50,000 files reached. "
-    "Narrow your search or configure ignore rules."
-)
+_DEFAULT_MAX_FILES_LIMIT: int = 100_000
 BINARY_FILE_PLACEHOLDER: str = "[SKIPPED: Binary file detected]"
 
 
@@ -58,9 +54,12 @@ class MaxFilesLimitError(RuntimeError):
     """Raised when a scan would include too many files."""
 
 
-def _raise_if_file_limit(count: int) -> None:
-    if count > MAX_FILES_LIMIT:
-        raise MaxFilesLimitError(MAX_FILES_LIMIT_MESSAGE)
+def _raise_if_file_limit(count: int, limit: int) -> None:
+    if count > limit:
+        raise MaxFilesLimitError(
+            f"[!] Limit of {limit:,} files reached. "
+            "Narrow your search or configure ignore rules."
+        )
 
 
 def _is_binary_file(fp: Path) -> bool:
@@ -396,7 +395,10 @@ def get_all_files(
                 continue
             result.append(fp)
             file_count += 1
-            _raise_if_file_limit(file_count)
+            _raise_if_file_limit(
+                file_count,
+                getattr(cfg, "max_files_limit", _DEFAULT_MAX_FILES_LIMIT),
+            )
 
     return result
 
@@ -670,6 +672,7 @@ def assemble_context(
     show_tree: bool = True,
     max_chars: int = 90_000,
     strip_explanations: bool = False,
+    structure_only: bool = False,
 ) -> list[str]:
     """Build the final context string(s) ready for file write / clipboard.
 
@@ -703,20 +706,21 @@ def assemble_context(
 
     # ── individual file blocks ──
     blocks: list[str] = []
-    for i, fp in enumerate(files, 1):
-        rel: str = str(fp.relative_to(root)).replace("\\", "/")
-        content: str = read_file_content(fp, strip=strip_explanations)
-        if not content.endswith("\n"):
-            content += "\n"
-        blocks.append(
-            f"┌─── 📄 [{i}/{total}] {rel}\n"
-            f"{content}"
-            f"└{'─' * 40}\n\n"
-        )
+    if not structure_only:
+        for i, fp in enumerate(files, 1):
+            rel: str = str(fp.relative_to(root)).replace("\\", "/")
+            content: str = read_file_content(fp, strip=strip_explanations)
+            if not content.endswith("\n"):
+                content += "\n"
+            blocks.append(
+                f"┌─── 📄 [{i}/{total}] {rel}\n"
+                f"{content}"
+                f"└{'─' * 40}\n\n"
+            )
 
     # ── tree section ──
     tree_section: str = ""
-    if show_tree:
+    if show_tree or structure_only:
         tbody: str = build_tree(root, files)
         tree_section = (
             f"┌{'─' * 12}\n"
@@ -793,13 +797,17 @@ def write_output(
     show_tree: bool = True,
     max_chars: int = 90_000,
     strip_explanations: bool = False,
+    structure_only: bool = False,
 ) -> list[tuple[Path, int]]:
     """Assemble context and write to file(s).
 
-    Returns ``[(path, char_count)]``.
+    Returns
+    -------
+    list[tuple[Path, int]]
+        List of (file_path, characters_written).
     """
-    parts: list[str] = assemble_context(
-        root, files, mode, show_tree, max_chars, strip_explanations,
+    parts = assemble_context(
+        root, files, mode, show_tree, max_chars, strip_explanations, structure_only
     )
     if not parts:
         return []

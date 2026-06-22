@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
-"""Convenience build script — wraps ``make zipapp`` for Windows users
-who don't have make, and for CI pipelines.
-
-Usage:
-    python build.py            # build .pyz
-    python build.py clean      # remove artifacts
-    python build.py all        # alias for build
-    python build.py check      # verify PyInstaller prerequisites
+"""
+SFC Build Script - Unified ZipApp Builder with Auto-Versioning
 """
 
-from __future__ import annotations
-
+import re
 import shutil
 import sys
-import sysconfig
 import zipapp
 from pathlib import Path
 
@@ -25,88 +17,77 @@ APP_NAME = "sfc"
 
 def clean() -> None:
     """Remove all build artifacts."""
-    for d in (DIST, STAGING, Path("build")):
+    for d in (DIST, STAGING, Path("build"), Path(".zipapp_root")):
         if d.is_dir():
             shutil.rmtree(d)
-    for spec in Path(".").glob("*.spec"):
-        spec.unlink()
     for cache in Path(".").rglob("__pycache__"):
         shutil.rmtree(cache, ignore_errors=True)
-    print("🧹 Cleaned")
+    for pyc in Path(".").rglob("*.pyc"):
+        pyc.unlink(missing_ok=True)
+    for spec in Path(".").glob("*.spec"):
+        spec.unlink(missing_ok=True)
+    
+    Path(f"{APP_NAME}.pyz").unlink(missing_ok=True)
+    print("🧹 Cleaned build artifacts")
+
+
+def sync_version() -> str:
+    """Extracts version from pyproject.toml and safely updates sfc/version.py"""
+    toml_path = Path("pyproject.toml")
+    version_file = PKG / "version.py"
+
+    if not toml_path.exists() or not version_file.exists():
+        print("⚠️ Missing files for version sync")
+        return "unknown"
+
+    toml_content = toml_path.read_text(encoding="utf-8")
+    match = re.search(r'^version\s*=\s*["\']([^"\']+)["\']', toml_content, re.MULTILINE)
+    if not match:
+        return "unknown"
+    version = match.group(1)
+    
+    v_content = version_file.read_text(encoding="utf-8")
+    v_content = re.sub(r'^VERSION\s*=\s*["\'].*?["\']', f'VERSION = "{version}"', v_content, flags=re.MULTILINE)
+    v_content = re.sub(r'^__version__\s*=\s*["\'].*?["\']', f'__version__ = "{version}"', v_content, flags=re.MULTILINE)
+    version_file.write_text(v_content, encoding="utf-8")
+    
+    print(f"🔄 Synced version: v{version}")
+    return version
 
 
 def build() -> Path:
-    """Build ``dist/sfc.pyz`` portable archive."""
+    """Build dist/sfc.pyz portable archive."""
     clean()
+    version = sync_version()
+    
     DIST.mkdir(parents=True, exist_ok=True)
     STAGING.mkdir(parents=True, exist_ok=True)
 
-    # Copy package into staging (preserves relative imports)
     shutil.copytree(PKG, STAGING / "sfc", dirs_exist_ok=True)
 
-    # Strip __pycache__ / .pyc
-    for cache in (STAGING / "sfc").rglob("__pycache__"):
+    for cache in STAGING.rglob("__pycache__"):
         shutil.rmtree(cache)
-    for pyc in (STAGING / "sfc").rglob("*.pyc"):
+    for pyc in STAGING.rglob("*.pyc"):
         pyc.unlink()
 
-    # Top-level __main__.py
-    (STAGING / "__main__.py").write_text(
-        "import sys\n"
-        "from sfc.app import run\n"
-        "run(sys.argv[1:])\n",
-        encoding="utf-8",
-    )
-
     out = DIST / f"{APP_NAME}.pyz"
+    
     zipapp.create_archive(
         source=STAGING,
         target=out,
         interpreter="/usr/bin/env python3",
+        main="sfc.__main__:main",
         compressed=True,
     )
 
     shutil.rmtree(STAGING)
 
+    root_out = Path(f"{APP_NAME}.pyz")
+    shutil.copy(out, root_out)
+
     size_kb = out.stat().st_size / 1024
     print(f"✅ Built: {out}  ({size_kb:.1f} KB)")
-    print(f"   Run:   ./{out}  or  python {out}")
     return out
-
-
-def check_pyinstaller() -> None:
-    """Check whether PyInstaller can work in this environment."""
-    shared = sysconfig.get_config_var("Py_ENABLE_SHARED")
-    ldlib = sysconfig.get_config_var("LDLIBRARY") or ""
-    pi = shutil.which("pyinstaller")
-
-    print()
-    print(f"  Python:         {sys.executable}")
-    print(f"  Version:        {sys.version.split()[0]}")
-    print(f"  Platform:       {sys.platform}")
-    print(f"  Shared lib:     {'YES' if shared else 'NO  ← PyInstaller will fail'}")
-    print(f"  LDLIBRARY:      {ldlib or '(none)'}")
-    print(f"  PyInstaller:    {pi or 'NOT INSTALLED'}")
-    print()
-
-    if not shared:
-        print("  ❌ Python was NOT built with --enable-shared")
-        print()
-        print("  Solutions:")
-        print('    1. Use "python build.py" for .pyz (works everywhere)')
-        print("    2. Rebuild Python with --enable-shared:")
-        print('       pyenv: PYTHON_CONFIGURE_OPTS="--enable-shared" pyenv install 3.12')
-        print("       conda: conda install python  (always shared)")
-        print()
-        sys.exit(1)
-
-    if not pi:
-        print("  ❌ PyInstaller not installed")
-        print("     pip install pyinstaller")
-        sys.exit(1)
-
-    print("  ✅ Ready for PyInstaller builds")
-    print()
 
 
 if __name__ == "__main__":
@@ -115,9 +96,7 @@ if __name__ == "__main__":
         clean()
     elif cmd in ("build", "all", "zipapp"):
         build()
-    elif cmd == "check":
-        check_pyinstaller()
     else:
         print(f"Unknown command: {cmd}")
-        print("Usage: python build.py [build|clean|all|check]")
+        print("Usage: python build.py [build|clean|all]")
         sys.exit(1)

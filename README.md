@@ -1,7 +1,7 @@
 # 🔧 Smart File Collector (sfc) [ARCHIVED]
 
 > **⚠️ NOTICE: Active development has moved to SFCP (Smart File Collector PRO).**
-> Version 4.9.0 is the final, rock-solid release of the free open-source core. 
+> Version 5.0.0 is the final, rock-solid release of the free open-source core. 
 
 A zero-dependency CLI/TUI tool that collects project source code into a single
 structured text file — built specifically for feeding codebases into AI chats
@@ -10,7 +10,7 @@ structured text file — built specifically for feeding codebases into AI chats
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#)
-[![Version](https://img.shields.io/badge/version-4.9.0-cyan.svg)](#)
+[![Version](https://img.shields.io/badge/version-5.0.0-cyan.svg)](#)
 [![Status](https://img.shields.io/badge/status-archived-red.svg)](#)
 
 ---

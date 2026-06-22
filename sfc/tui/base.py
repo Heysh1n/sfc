@@ -11,6 +11,7 @@ v4.0.1 fixes:
 from __future__ import annotations
 
 import unicodedata
+import re
 from abc import ABC, abstractmethod
 from enum import Enum, auto
 from typing import Callable
@@ -75,8 +76,11 @@ def _char_width(ch: str) -> int:
     return 1
 
 
+_ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
+
 def display_width(text: str) -> int:
-    """Terminal cell width of *text*, accounting for wide chars and emoji."""
+    """Terminal cell width of *text*, accounting for wide chars and emoji, ignoring ANSI."""
+    text = _ANSI_RE.sub('', text)
     return sum(_char_width(ch) for ch in text)
 
 
@@ -97,13 +101,19 @@ def truncate_to_width(text: str, max_width: int) -> str:
         return ""
     w = 0
     end = 0
-    for i, ch in enumerate(text):
-        cw = _char_width(ch)
-        if w + cw > max_width:
-            break
-        w += cw
-        end = i + 1
-    return text[:end]
+    for match in re.finditer(r'\x1b\[[0-9;]*m|.', text, re.DOTALL):
+        chunk = match.group(0)
+        if not chunk.startswith('\x1b'):
+            cw = _char_width(chunk)
+            if w + cw > max_width:
+                break
+            w += cw
+        end = match.end()
+    
+    res = text[:end]
+    if '\x1b[' in res and not res.endswith('\033[0m'):
+        res += '\033[0m'
+    return res
 
 
 # ════════════════════════════════════════════════════════════════════

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-__version__ = "4.9.0"
+__version__ = "5.0.0"
 VERSION: str = __version__
 APP_NAME: str = "SFC"
 APP_TITLE: str = "Smart File Collector"
 AUTHOR: str = "Heysh1n"
+AUTHOR_URL: str = "https://github.com/Heysh1n"
 FOOTER_TEXT: str = f"Made with \u2764\ufe0f by {AUTHOR}"
 
 GITHUB_REPO: str = "Heysh1n/sfc"

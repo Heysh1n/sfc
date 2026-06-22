@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import platform
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -12,7 +14,6 @@ from sfc.collector import (
     get_all_files,
     build_tree,
     write_output,
-    read_safe,
     fmt_size,
     project_size_report,
 )
@@ -41,6 +42,45 @@ ROOT_GUARD_MESSAGE: str = (
 )
 _BACKGROUND_UPDATE_THREAD_STARTED: bool = False
 _BACKGROUND_UPDATE_THREAD_LOCK = threading.Lock()
+
+
+# ════════════════════════════════════════════════════════════════════
+#  SFC PRO AD BANNER
+# ════════════════════════════════════════════════════════════════════
+
+_SFC_PRO_BANNER: str = """\
+\033[93m╔══════════════════════════════════════════════════════════════╗
+║                                                              ║
+║   ⭐  Found a bug or have a suggestion?                      ║
+║                                                              ║
+║   🚀 Report issues here:                                     ║
+║   👉 https://github.com/Heysh1n/Heysh1n                      ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝\033[0m
+"""
+
+
+def _show_ad_banner(cfg: AppConfig) -> None:
+    """Display the SFC PRO advertisement banner if not disabled."""
+    if not cfg.show_ads:
+        return
+    print(_SFC_PRO_BANNER)
+    try:
+        answer = input("  Press Enter to continue or X to close ad: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    if answer == "x":
+        return
+
+
+def _is_version_below_5(version: str) -> bool:
+    """Return True if *version* is older than 5.0.0."""
+    try:
+        parts = version.strip().lstrip("v").split(".")
+        return int(parts[0]) < 5
+    except (ValueError, IndexError):
+        return False
 
 
 def _exit_stopped_by_user() -> None:
@@ -246,6 +286,40 @@ def _cli_preset(args: argparse.Namespace, cfg: AppConfig) -> None:
         _cli_pick(args, cfg)
 
 
+# ════════════════════════════════════════════════════════════════════
+#  OS FILE MANAGER INTEGRATION
+# ════════════════════════════════════════════════════════════════════
+
+def _open_file_manager(directory: Path) -> None:
+    """Open the platform file manager for *directory*."""
+    target = str(directory.resolve())
+    system = platform.system()
+    try:
+        if system == "Linux":
+            subprocess.Popen(["xdg-open", target])
+        elif system == "Darwin":
+            subprocess.Popen(["open", target])
+        elif system == "Windows":
+            subprocess.Popen(["explorer", target])
+        else:
+            print(f"⚠️  Unsupported OS for auto-open: {system}")
+    except FileNotFoundError:
+        print("⚠️  File manager command not found")
+    except OSError as exc:
+        print(f"⚠️  Cannot open file manager: {exc}")
+
+
+def _prompt_open_file_manager(directory: Path) -> None:
+    """Ask the user whether to open the output directory."""
+    try:
+        answer = input("\n  📂 Open directory in file manager? [y/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    if answer in ("y", "yes"):
+        _open_file_manager(directory)
+
+
 def _cli_print_created(created: list[tuple[Path, int]]) -> None:
     if not created:
         print("⚠️  No output")
@@ -253,6 +327,7 @@ def _cli_print_created(created: list[tuple[Path, int]]) -> None:
     print(f"\n  ✅ {len(created)} file(s):")
     for fn, ch in created:
         print(f"     📄 {fn.name}: {ch:,} chars")
+    _prompt_open_file_manager(created[0][0].parent)
 
 
 def _cli_print_size_report(root: Path) -> None:
@@ -366,9 +441,14 @@ class App:
     def _update_menu_label(self) -> str:
         remote = get_background_update_version()
         if not remote:
-            return "🔄  Check for updates"
-        shown = remote if remote.lower().startswith("v") else f"v{remote}"
-        return f"⭐  UPDATE AVAILABLE: {shown}"
+            label = "🔄  Check for updates"
+        else:
+            shown = remote if remote.lower().startswith("v") else f"v{remote}"
+            label = f"⭐  UPDATE AVAILABLE: {shown}"
+        # Tag old versions as not recommended
+        if _is_version_below_5(VERSION):
+            label += "  \033[91m[Not Recommended]\033[0m"
+        return label
 
     def _main_menu(self) -> None:
         from sfc.tui.base import MenuItem, Key, KeyEvent
@@ -389,18 +469,13 @@ class App:
                 MenuItem("📋  Collect ALL files", "collect_all"),
                 MenuItem("🔖  Presets", "presets"),
                 MenuItem("🗂️   View tree", "tree"),
-                MenuItem("⚙️   Settings", "settings"),
+                MenuItem("🔧   Settings", "settings"),
                 MenuItem("📖  Help", "help"),
                 MenuItem(self._update_menu_label(), "update"),
                 MenuItem("─" * 30, "_sep1", enabled=False),
                 MenuItem(
                     f"✅  Collect selected ({sel_count})",
                     "collect",
-                    enabled=sel_count > 0,
-                ),
-                MenuItem(
-                    "👁️   Preview selected",
-                    "preview",
                     enabled=sel_count > 0,
                 ),
                 MenuItem(
@@ -464,8 +539,6 @@ class App:
                 self._update_screen()
             elif action == "collect":
                 self._do_collect()
-            elif action == "preview":
-                self._preview()
             elif action == "clear_sel":
                 self.selected.clear()
                 self.engine.show_message("✓ Selection cleared")
@@ -665,7 +738,9 @@ class App:
         patterns: list[str] = []
         while True:
             line = self.engine.prompt("path> ")
-            if line is None or line == "":
+            if line is None:
+                return
+            if line == "":
                 break
             patterns.append(line)
 
@@ -749,47 +824,21 @@ class App:
         )
         self._offer_clipboard(created)
 
-    # ── Preview ────────────────────────────────────────────────────
-
-    def _preview(self) -> None:
-        if not self.selected:
-            self.engine.show_message("⚠️ Nothing selected")
-            return
-
-        lines: list[str] = [f"  👁️ Selected ({len(self.selected)})", ""]
-        total_sz = 0
-        for rel in sorted(self.selected):
-            fp = self.root / rel
-            if fp.exists():
-                sz = fp.stat().st_size
-                total_sz += sz
-                lines.append(f"  ✓ {rel}  ({fmt_size(sz)})")
-            else:
-                lines.append(f"  ✗ {rel} (missing)")
-
-        est = sum(
-            len(read_safe(self.root / r)) + 100
-            for r in self.selected if (self.root / r).exists()
-        )
-        parts_est = max(
-            1, (est + self.cfg.max_chars - 1) // self.cfg.max_chars,
-        )
-        lines.append("")
-        lines.append(
-            f"  Total: {fmt_size(total_sz)} | ~{est:,} chars"
-            f" | ~{parts_est} part(s)"
-        )
-        if self.cfg.strip_explanations:
-            lines.append("  🔧 Comment Killer: ON (docstrings + comments stripped)")
-
-        self.engine.draw_text_block("\n".join(lines))
-
     # ── Tree ───────────────────────────────────────────────────────
 
     def _tree_view(self) -> None:
         tree_text = build_tree(self.root, self.all_files, sizes=True)
-        tree_text += f"\n\n 📄 Total: {len(self.all_files)} files"
-        self.engine.draw_text_block(tree_text)
+        colored_lines = []
+        for line in tree_text.splitlines():
+            if "📂" in line or "📦" in line:
+                colored_lines.append(f"\033[36m{line}\033[0m")
+            elif "📄" in line:
+                colored_lines.append(f"\033[32m{line}\033[0m")
+            else:
+                colored_lines.append(line)
+        colored_text = "\n".join(colored_lines)
+        colored_text += f"\n\n 📄 Total: {len(self.all_files)} files"
+        self.engine.draw_text_block(colored_text)
 
     # ── Settings ───────────────────────────────────────────────────
 
@@ -800,6 +849,7 @@ class App:
             tree_s = "ON" if self.cfg.show_tree else "OFF"
             copy_s = "ON" if self.cfg.auto_copy else "OFF"
             strip_s = "ON" if self.cfg.strip_explanations else "OFF"
+            ads_s = "ON" if self.cfg.show_ads else "OFF"
             clip_backend = available_backend() or "none"
 
             items = [
@@ -822,9 +872,15 @@ class App:
                     f"Comment Killer:     {strip_s}", "toggle_strip",
                 ),
                 MenuItem(
+                    f"Show SFC PRO ads:   {ads_s}", "toggle_ads",
+                ),
+                MenuItem(
                     f"Clipboard backend:  {clip_backend}",
                     "_clip", enabled=False,
                 ),
+                MenuItem("─" * 30, "_sep_presets", enabled=False),
+                MenuItem("💾  Save config preset", "save_cfg_preset"),
+                MenuItem("📂  Load config preset", "load_cfg_preset"),
                 MenuItem("─" * 30, "_sep", enabled=False),
                 MenuItem("🚫  Ignoring (dirs/files/ext)", "ignoring"),
                 MenuItem(
@@ -835,7 +891,7 @@ class App:
                 MenuItem("↩   Back", "back"),
             ]
 
-            title = ["  ⚙️ Settings"]
+            title = ["  🔧 Settings"]
             result = self.engine.menu_loop(
                 title, items, on_select=lambda item, idx: True,
             )
@@ -879,6 +935,10 @@ class App:
                         self.cfg.page_size = max(5, min(100, int(val)))
                     except ValueError:
                         pass
+            elif v == "toggle_ads":
+                self.cfg.show_ads = not self.cfg.show_ads
+                state = "ON" if self.cfg.show_ads else "OFF"
+                self.engine.show_message(f"📢 SFC PRO ads: {state}")
             elif v == "ignoring":
                 self._ignoring_menu()
             elif v == "refresh":
@@ -886,6 +946,32 @@ class App:
                 self.engine.show_message(
                     f"✓ {len(self.all_files)} files indexed"
                 )
+            elif v == "save_cfg_preset":
+                name = self.engine.prompt("Preset name: ")
+                if name:
+                    from sfc.config import save_config_preset
+                    save_config_preset(name, self.cfg)
+                    self.engine.show_message(f"✓ Saved config preset '{name}'")
+            elif v == "load_cfg_preset":
+                from sfc.config import list_config_presets, load_config_preset
+                presets = list_config_presets()
+                if not presets:
+                    self.engine.show_message("No config presets found")
+                    continue
+                from sfc.tui.base import MenuItem as MI
+                p_items = [MI(p, p) for p in presets]
+                p_items.append(MI("↩   Back", "back"))
+                res = self.engine.menu_loop(
+                    ["  Load Config Preset"], p_items,
+                    on_select=lambda i, idx: True,
+                )
+                if res and res.value != "back":
+                    loaded = load_config_preset(res.value)
+                    if loaded:
+                        self.cfg = loaded
+                        save_config(self.cfg)
+                        self._refresh_files()
+                        self.engine.show_message(f"✓ Loaded config preset '{res.value}'")
 
     # ── Ignoring Sub-Menu ──────────────────────────────────────────
 
@@ -1035,7 +1121,9 @@ class App:
                 ))
 
             items.append(MenuItem("─" * 30, "_sep", enabled=False))
-            items.append(MenuItem("💾  Save selection as preset", "save"))
+            items.append(MenuItem("🔖 [Built-in] Structure only", "use_builtin:structure_only"))
+            items.append(MenuItem("─" * 30, "_sep2", enabled=False))
+            items.append(MenuItem("💾  Create new preset...", "save"))
             items.append(MenuItem("🗑️   Delete a preset", "delete"))
             items.append(MenuItem("📤  Export preset → collect", "export"))
             items.append(MenuItem("↩   Back", "back"))
@@ -1049,7 +1137,20 @@ class App:
                 return
 
             v = result.value
-            if v.startswith("use:"):
+            if v == "use_builtin:structure_only":
+                created = write_output(
+                    self.root,
+                    self.all_files,
+                    self.cfg.output,
+                    mode="preset:Structure only",
+                    show_tree=True,
+                    max_chars=self.cfg.max_chars,
+                    strip_explanations=self.cfg.strip_explanations,
+                    structure_only=True,
+                )
+                self._offer_clipboard(created)
+
+            elif v.startswith("use:"):
                 name = v[4:]
                 picked, _ = resolve_patterns(
                     self.root, presets[name], self.all_files,
@@ -1063,16 +1164,52 @@ class App:
                 )
 
             elif v == "save":
-                if not self.selected:
-                    self.engine.show_message("⚠️ Nothing selected")
+                create_items = [
+                    MenuItem(f"✓  From currently selected ({len(self.selected)})", "selected"),
+                    MenuItem("📂  Browse & Select files", "browse"),
+                    MenuItem("⌨   Enter Glob Pattern", "pattern"),
+                    MenuItem("↩   Cancel", "cancel"),
+                ]
+                c_res = self.engine.menu_loop(
+                    ["  💾 Create new preset"], create_items,
+                    on_select=lambda i, idx: True,
+                )
+                if not c_res or c_res.value == "cancel":
                     continue
-                name = self.engine.prompt("Preset name: ")
-                if name:
-                    presets[name] = sorted(self.selected)
-                    save_presets(presets, self.root)
-                    self.engine.show_message(
-                        f"✓ Saved '{name}' ({len(self.selected)} files)"
-                    )
+
+                if c_res.value == "selected":
+                    if not self.selected:
+                        self.engine.show_message("⚠️ Nothing selected")
+                        continue
+                    name = self.engine.prompt("Preset name: ")
+                    if name:
+                        presets[name] = sorted(self.selected)
+                        save_presets(presets, self.root)
+                        self.engine.show_message(
+                            f"✓ Saved '{name}' ({len(self.selected)} files)"
+                        )
+                elif c_res.value == "browse":
+                    self._browse()
+                    if not self.selected:
+                        self.engine.show_message("⚠️ Nothing selected")
+                        continue
+                    name = self.engine.prompt("Preset name: ")
+                    if name:
+                        presets[name] = sorted(self.selected)
+                        save_presets(presets, self.root)
+                        self.engine.show_message(
+                            f"✓ Saved '{name}' ({len(self.selected)} files)"
+                        )
+                elif c_res.value == "pattern":
+                    pat = self.engine.prompt("Glob pattern (e.g. src/**/*.py): ")
+                    if pat:
+                        name = self.engine.prompt("Preset name: ")
+                        if name:
+                            presets[name] = [pat]
+                            save_presets(presets, self.root)
+                            self.engine.show_message(
+                                f"✓ Saved '{name}' (pattern: {pat})"
+                            )
 
             elif v == "delete":
                 if not names:
@@ -1151,9 +1288,13 @@ class App:
             return
 
         if not result.available:
-            self.engine.show_message(
-                f"✅ You are on the latest version ({result.current_version})"
-            )
+            msg = f"✅ You are on the latest version ({result.current_version})"
+            if _is_version_below_5(result.current_version):
+                msg += (
+                    "\n\n\033[91m⚠️  [Not Recommended] Versions below 5.0.0 are outdated."
+                    "\nPlease upgrade to v5.0.0 for full support.\033[0m"
+                )
+            self.engine.show_message(msg)
             return
 
         if not self.engine.confirm(
@@ -1191,15 +1332,18 @@ class App:
 
         if self.cfg.auto_copy:
             self._do_copy(created, msg_lines)
-            return
-
-        msg_lines.append("")
-        self.engine.show_message("\n".join(msg_lines), wait=False)
-
-        if self.engine.confirm("Copy to clipboard?"):
-            self._do_copy(created, [])
         else:
-            self.engine.show_message("\n".join(msg_lines))
+            msg_lines.append("")
+            self.engine.show_message("\n".join(msg_lines), wait=False)
+
+            if self.engine.confirm("Copy to clipboard?"):
+                self._do_copy(created, [])
+            else:
+                self.engine.show_message("\n".join(msg_lines))
+
+        # Offer to open the output directory in the platform file manager
+        if created and self.engine.confirm("📂 Open directory in file manager?"):
+            _open_file_manager(created[0][0].parent)
 
     def _do_copy(
         self,
@@ -1244,6 +1388,8 @@ def _run(argv: list[str] | None = None) -> None:
         argv = sys.argv[1:]
 
     cfg: AppConfig = load_config()
+
+    _show_ad_banner(cfg)
 
     # No args → interactive
     if not argv:

@@ -60,6 +60,8 @@ _CLS = f"{_E}2J{_E}H"
 _HIDE = f"{_E}?25l"
 _SHOW = f"{_E}?25h"
 _CLR = f"{_E}2K"
+_ALT_SCR_ON = f"{_E}?1049h"
+_ALT_SCR_OFF = f"{_E}?1049l"
 
 
 def _mv(r: int, c: int) -> str:
@@ -112,13 +114,13 @@ class WinEngine(Engine):
         if self._started:
             return
         _enable_ansi()
-        self._w(_HIDE)
+        self._w(_ALT_SCR_ON + _HIDE)
         self._started = True
 
     def stop(self) -> None:
         if not self._started:
             return
-        self._w(_SHOW + _RST)
+        self._w(_SHOW + _RST + _ALT_SCR_OFF)
         self._started = False
 
     # ════════════════════════════════════════════════════════════════
