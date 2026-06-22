@@ -124,14 +124,39 @@ class CursesEngine(Engine):
         if avail <= 0:
             return
         text = truncate_to_width(text, avail)
-        try:
-            self._scr.addstr(row, col, text, attr)
-        except curses.error:
-            cleaned = self._ascii_fallback(text)[:avail]
+        
+        import re
+        parts = re.split(r'(\x1b\[[0-9;]*m)', text)
+        current_col = col
+        current_attr = attr
+        
+        ansi_map = {
+            '36': curses.color_pair(_CP_TITLE) | curses.A_BOLD,
+            '32': curses.color_pair(_CP_CHECKED),
+            '0': attr
+        }
+        
+        for p in parts:
+            if not p:
+                continue
+            if p.startswith('\x1b'):
+                codes = p[2:-1].split(';')
+                for c in codes:
+                    if c in ansi_map:
+                        current_attr = ansi_map[c]
+                continue
+                
             try:
-                self._scr.addstr(row, col, cleaned, attr)
+                self._scr.addstr(row, current_col, p, current_attr)
             except curses.error:
-                pass
+                cleaned = self._ascii_fallback(p)
+                try:
+                    self._scr.addstr(row, current_col, cleaned, current_attr)
+                except curses.error:
+                    pass
+            current_col += display_width(p)
+            if current_col >= cols:
+                break
 
     def _ascii_fallback(self, text: str) -> str:
         _MAP = {

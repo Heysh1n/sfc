@@ -60,8 +60,14 @@ class AppConfig:
     auto_copy: bool = False
     page_size: int = 20
 
+    # ── v5.0 — configurable file scan limit ──
+    max_files_limit: int = 50_000
+
     # ── v4.0 — AST Comment Killer ──
     strip_explanations: bool = False
+
+    # ── v5.0 — ad banner toggle ──
+    show_ads: bool = True
 
     # ── Ignore lists ──
     ignore_dirs: list[str] = field(
@@ -85,6 +91,8 @@ class AppConfig:
             self.ignore_extensions = sorted(DEFAULT_IGNORE_EXTENSIONS)
         if not isinstance(self.strip_explanations, bool):
             self.strip_explanations = False
+        if not isinstance(self.show_ads, bool):
+            self.show_ads = True
         try:
             self.max_chars = max(1_000, int(self.max_chars))
         except (TypeError, ValueError):
@@ -93,6 +101,10 @@ class AppConfig:
             self.page_size = max(5, min(100, int(self.page_size)))
         except (TypeError, ValueError):
             self.page_size = 20
+        try:
+            self.max_files_limit = max(1_000, int(self.max_files_limit))
+        except (TypeError, ValueError):
+            self.max_files_limit = 50_000
 
     # ── Convenience accessors ──
 
@@ -143,6 +155,44 @@ def save_config(cfg: AppConfig) -> None:
         json.dumps(asdict(cfg), indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+
+
+# ════════════════════════════════════════════════════════════════════
+#  CONFIG PRESETS
+# ════════════════════════════════════════════════════════════════════
+
+def config_presets_dir() -> Path:
+    return _config_dir() / "presets"
+
+
+def save_config_preset(name: str, cfg: AppConfig) -> None:
+    d = config_presets_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    fp = d / f"{name}.json"
+    fp.write_text(
+        json.dumps(asdict(cfg), indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def load_config_preset(name: str) -> AppConfig | None:
+    fp = config_presets_dir() / f"{name}.json"
+    if not fp.exists():
+        return None
+    try:
+        raw: dict[str, Any] = json.loads(fp.read_text("utf-8"))
+        valid_keys: set[str] = {f.name for f in dc_fields(AppConfig)}
+        kw: dict[str, Any] = {k: v for k, v in raw.items() if k in valid_keys}
+        return AppConfig(**kw)
+    except Exception:
+        return None
+
+
+def list_config_presets() -> list[str]:
+    d = config_presets_dir()
+    if not d.exists():
+        return []
+    return sorted(p.stem for p in d.glob("*.json"))
 
 
 # ════════════════════════════════════════════════════════════════════

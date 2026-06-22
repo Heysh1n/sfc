@@ -83,66 +83,50 @@ SFC_DOT_PREFIX: str = ".sfc-"
 # ════════════════════════════════════════════════════════════════════
 
 HELP_GLOB: str = """\
- ╭─ Glob Pattern Reference ──────────────────────────────────╮
+ ╭─ Glob Patterns ───────────────────────────────────────────╮
  │                                                           │
- │  *          matches everything inside one segment         │
- │  ?          matches any single character                  │
- │  [seq]      matches any character in seq                  │
- │  [!seq]     matches any character NOT in seq              │
- │  **         not supported by fnmatch (use path segments)  │
+ │  *        Match anything in one segment (e.g. *.py)       │
+ │  ?        Match any single character                      │
+ │  [seq]    Match any character in seq                      │
+ │  [!seq]   Match any character NOT in seq                  │
  │                                                           │
  │  Examples:                                                │
- │    *.py             all Python files (any depth)          │
- │    sfc/*.py         .py files directly in sfc/            │
- │    test_*.py        files starting with test_             │
- │    *.service.ts     Angular services                      │
- │    config/*         everything inside config/             │
- │    **/utils/*.py    utils dirs at any depth               │
+ │    *.py           All .py files                           │
+ │    src/*.ts       .ts files directly in src/              │
+ │    **/test_*.py   Test files at any depth                 │
  │                                                           │
  ╰───────────────────────────────────────────────────────────╯"""
 
 HELP_PRESETS: str = """\
- ╭─ Presets Guide ───────────────────────────────────────────╮
- │                                                          │
- │  Presets save named file selections for quick reuse.     │
- │  Stored per-project in .sfc-presets.json at project root.│
- │                                                          │
- │  Save:   select files → Presets → Save                   │
- │  Use:    Presets → Use → pick number                     │
- │  Export: Presets → Export → direct collect + clipboard    │
- │  Delete: Presets → Delete → pick number                  │
- │                                                          │
- │  CLI:                                                    │
- │    sfc preset save myconf "sfc/*.py" "README.md"         │
- │    sfc preset myconf                                     │
- │    sfc preset list                                       │
- │    sfc preset delete myconf                              │
- │                                                          │
- ╰──────────────────────────────────────────────────────────╯"""
+ ╭─ Presets ─────────────────────────────────────────────────╮
+ │                                                           │
+ │  Save named file selections to .sfc-presets.json          │
+ │                                                           │
+ │  UI Actions:                                              │
+ │  - Save:   Save current selection                         │
+ │  - Use:    Load files from a preset                       │
+ │  - Export: Collect preset files directly                  │
+ │                                                           │
+ │  CLI Examples:                                            │
+ │  $ sfc preset save my_preset "src/*.py"                   │
+ │  $ sfc preset my_preset                                   │
+ │                                                           │
+ ╰───────────────────────────────────────────────────────────╯"""
 
 HELP_FILTERS: str = """\
- ╭─ Filter & Ignore Guide ──────────────────────────────────╮
- │                                                          │
- │  Three ignore categories (editable in Settings):         │
- │                                                          │
- │  Directories:  folder names skipped during scan          │
- │     e.g.  node_modules, .git, __pycache__                │
- │                                                          │
- │  Files:        exact filenames always excluded            │
- │     e.g.  .DS_Store, package-lock.json, .env             │
- │                                                          │
- │  Extensions:   file suffixes excluded by extension        │
- │     e.g.  .pyc, .jpg, .zip, .pdf                        │
- │                                                          │
- │  Comment Killer:                                         │
- │     Settings → Strip Explanations → ON                   │
- │     Removes docstrings + comments from .py files (AST)   │
- │                                                          │
- │  Browse filter (/):  live substring search on paths      │
- │  Browse pattern (p): select by glob in current view      │
- │  Reset to defaults:  Settings → Ignoring → Reset         │
- │                                                          │
- ╰──────────────────────────────────────────────────────────╯"""
+ ╭─ Filters & Ignore ────────────────────────────────────────╮
+ │                                                           │
+ │  Ignore Categories (via Settings):                        │
+ │  - Dirs:  Skip entire folders (e.g. node_modules, .git)   │
+ │  - Files: Skip exact filenames (e.g. .DS_Store, .env)     │
+ │  - Exts:  Skip by suffix (e.g. .pyc, .pdf, .zip)          │
+ │                                                           │
+ │  Features:                                                │
+ │  - Comment Killer: Strips comments/docstrings from .py    │
+ │  - Browse Filter (/): Live substring search               │
+ │  - Glob Pattern (p): Select by pattern in browse view     │
+ │                                                           │
+ ╰───────────────────────────────────────────────────────────╯"""
 
 
 # ════════════════════════════════════════════════════════════════════
