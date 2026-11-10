@@ -134,7 +134,7 @@ def _cli_all(args: argparse.Namespace, cfg: AppConfig) -> None:
         return
     extra = set(args.ignore) if args.ignore else None
     files = get_all_files(root, cfg, extra)
-    _cli_print_size_report(root)
+    _cli_print_size_report(root, cfg)
     print(f"📄 {len(files)} files")
     created = write_output(
         root, files, args.output, "all",
@@ -166,7 +166,7 @@ def _cli_pick(args: argparse.Namespace, cfg: AppConfig) -> None:
         return
     extra = set(args.ignore) if args.ignore else None
     all_f = get_all_files(root, cfg, extra)
-    _cli_print_size_report(root)
+    _cli_print_size_report(root, cfg)
     picked, unmatched = resolve_patterns(root, patterns, all_f)
     for u in unmatched:
         print(f"  ⚠️  Not found: {u}")
@@ -191,7 +191,7 @@ def _cli_tree(args: argparse.Namespace, cfg: AppConfig) -> None:
         return
     extra = set(args.ignore) if args.ignore else None
     files = get_all_files(root, cfg, extra)
-    _cli_print_size_report(root)
+    _cli_print_size_report(root, cfg)
     tree = build_tree(
         root,
         files,
@@ -330,11 +330,11 @@ def _cli_print_created(created: list[tuple[Path, int]]) -> None:
     _prompt_open_file_manager(created[0][0].parent)
 
 
-def _cli_print_size_report(root: Path) -> None:
+def _cli_print_size_report(root: Path, cfg: AppConfig | None = None) -> None:
     total, dependencies = project_size_report(root)
     print(f"Total project size: {fmt_size(total)}")
     for name, size, percent in dependencies:
-        print(f"Dependency [{name}]: {fmt_size(size)} ({percent:.1f}%)")
+        print(f"Dependency [{name}]: skipped (ignored, not scanned)")
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -838,6 +838,15 @@ class App:
                 colored_lines.append(line)
         colored_text = "\n".join(colored_lines)
         colored_text += f"\n\n 📄 Total: {len(self.all_files)} files"
+        
+        if self.cfg.auto_copy:
+            plain_text = tree_text + f"\n\n 📄 Total: {len(self.all_files)} files"
+            res = copy_to_clipboard(plain_text)
+            if res.ok:
+                colored_text += f"\n\n 📋 Copied tree to clipboard via {res.backend}"
+            else:
+                colored_text += f"\n\n ⚠️ Clipboard: {res.error}"
+                
         self.engine.draw_text_block(colored_text)
 
     # ── Settings ───────────────────────────────────────────────────

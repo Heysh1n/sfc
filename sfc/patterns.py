@@ -29,6 +29,7 @@ DEFAULT_IGNORE_DIRS: frozenset[str] = frozenset({
     # Language-specific
     "node_modules", ".terraform", ".gradle", ".cargo",
     ".next", ".nuxt", ".parcel-cache",
+    "target", "vendor", "bin", "obj",
 })
 
 DEFAULT_IGNORE_FILES: frozenset[str] = frozenset({

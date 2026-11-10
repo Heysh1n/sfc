@@ -46,20 +46,11 @@ def fmt_size(n: int) -> str:
 DEPENDENCY_DIRS: tuple[str, ...] = (
     "node_modules", "venv", ".venv", "target", "build",
 )
-_DEFAULT_MAX_FILES_LIMIT: int = 100_000
 BINARY_FILE_PLACEHOLDER: str = "[SKIPPED: Binary file detected]"
 
 
 class MaxFilesLimitError(RuntimeError):
-    """Raised when a scan would include too many files."""
-
-
-def _raise_if_file_limit(count: int, limit: int) -> None:
-    if count > limit:
-        raise MaxFilesLimitError(
-            f"[!] Limit of {limit:,} files reached. "
-            "Narrow your search or configure ignore rules."
-        )
+    """Kept for backward compatibility; no longer raised (no hard limits)."""
 
 
 def _is_binary_file(fp: Path) -> bool:
@@ -91,7 +82,11 @@ def _ignore_sets(
 ) -> tuple[set[str], set[str], set[str]]:
     from sfc.patterns import load_sfcignore
 
-    ignore_dirs: set[str] = cfg.ignore_dirs_set() if cfg else set()
+    from sfc.patterns import DEFAULT_IGNORE_DIRS
+
+    ignore_dirs: set[str] = set(DEFAULT_IGNORE_DIRS)
+    if cfg:
+        ignore_dirs |= cfg.ignore_dirs_set()
     if extra_ignore:
         ignore_dirs |= extra_ignore
     ignore_files: set[str] = cfg.ignore_files_set() if cfg else set()
@@ -105,38 +100,42 @@ def _ignore_sets(
     return ignore_dirs, ignore_files, ignore_ext
 
 
-def _sum_files_rglob(root: Path) -> int:
-    """Sum file sizes below *root* using ``Path.rglob``."""
-    total: int = 0
-    file_count: int = 0
-    try:
-        for item in root.rglob("*"):
+def _prune_dirs(
+    dirpath: str, dirs: list[str], root: Path, ignore_dirs: set[str],
+) -> None:
+    """Mutate *dirs* in place so ignored / hidden / symlinked dirs are never entered."""
+    cur = Path(dirpath)
+    dirs[:] = sorted(
+        d for d in dirs
+        if d not in ignore_dirs
+        and not d.startswith(".")
+        and not os.path.islink(os.path.join(dirpath, d))
+        and not _matches_ignore(_relative_posix(cur / d, root), d, ignore_dirs)
+    )
+
+
+def project_size_report(
+    root: Path, limit: int | None = None,
+) -> tuple[int, list[tuple[str, int, float]]]:
+    """Return size of the *visible* project and the dependency dirs skipped.
+
+    Ignored directories are never opened, so their size is reported as 0.
+    ``limit`` is accepted for backward compatibility and ignored.
+    """
+    root = root.resolve()
+    ignore_dirs, _, _ = _ignore_sets(root, None, None)
+    total = 0
+    for dirpath, dirs, files in os.walk(root, topdown=True):
+        _prune_dirs(dirpath, dirs, root, ignore_dirs)
+        for fn in files:
             try:
-                if item.is_file():
-                    file_count += 1
-                    _raise_if_file_limit(file_count)
-                    total += item.stat().st_size
+                total += os.lstat(os.path.join(dirpath, fn)).st_size
             except OSError:
                 continue
-    except OSError:
-        pass
-    return total
 
-
-def project_size_report(root: Path) -> tuple[int, list[tuple[str, int, float]]]:
-    """Return total project size and first-level dependency directory sizes."""
-    root = root.resolve()
-    total = _sum_files_rglob(root)
-    dependencies: list[tuple[str, int, float]] = []
-
-    for name in DEPENDENCY_DIRS:
-        dep = root / name
-        if not dep.is_dir():
-            continue
-        size = _sum_files_rglob(dep)
-        percent = (size / total * 100.0) if total else 0.0
-        dependencies.append((name, size, percent))
-
+    dependencies: list[tuple[str, int, float]] = [
+        (name, 0, 0.0) for name in DEPENDENCY_DIRS if (root / name).is_dir()
+    ]
     return total, dependencies
 
 
@@ -372,17 +371,11 @@ def get_all_files(
         root, cfg, extra_ignore,
     )
     result: list[Path] = []
-    file_count: int = 0
 
-    for dirpath, dirnames, filenames in os.walk(root):
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True):
         current_dir = Path(dirpath)
-        # Prune ignored directories in-place (also sorts for determinism)
-        dirnames[:] = sorted(
-            d for d in dirnames
-            if not _matches_ignore(
-                _relative_posix(current_dir / d, root), d, ignore_dirs,
-            )
-        )
+        # Prune BEFORE descending: ignored dirs are never opened.
+        _prune_dirs(dirpath, dirnames, root, ignore_dirs)
 
         for fn in sorted(filenames):
             fp = current_dir / fn
@@ -394,11 +387,6 @@ def get_all_files(
             if fp.suffix.lower() in ignore_ext:
                 continue
             result.append(fp)
-            file_count += 1
-            _raise_if_file_limit(
-                file_count,
-                getattr(cfg, "max_files_limit", _DEFAULT_MAX_FILES_LIMIT),
-            )
 
     return result
 
@@ -434,131 +422,87 @@ def read_file_content(fp: Path, strip: bool = False) -> str:
 #  TREE RENDERING
 # ════════════════════════════════════════════════════════════════════
 
-def _count_nested_entries(root: Path) -> tuple[int, int]:
-    """Count nested folders and files below *root* using ``Path.rglob``."""
-    folders: int = 0
-    files: int = 0
-
-    try:
-        for item in root.rglob("*"):
-            try:
-                if item.is_dir():
-                    folders += 1
-                elif item.is_file():
-                    files += 1
-                    _raise_if_file_limit(files)
-            except OSError:
-                continue
-    except OSError:
-        pass
-
-    return folders, files
-
-
-def _limited_dir_label(path: Path) -> str:
-    folders, files = _count_nested_entries(path)
-    if folders == 0 and files == 0:
-        return f"📂 {path.name}/ (empty)"
-    return f"📂 {path.name}/ (+{folders} folders | +{files} files)"
-
-
-def _tree_ignore_sets(
-    cfg: AppConfig | None,
-    extra_ignore: set[str] | None,
-    root: Path | None = None,
-) -> tuple[set[str], set[str], set[str]]:
-    if root is None:
-        ignore_dirs: set[str] = cfg.ignore_dirs_set() if cfg else set()
-        if extra_ignore:
-            ignore_dirs |= extra_ignore
-        ignore_files: set[str] = cfg.ignore_files_set() if cfg else set()
-        ignore_ext: set[str] = cfg.ignore_ext_set() if cfg else set()
-        return ignore_dirs, ignore_files, ignore_ext
-    return _ignore_sets(root.resolve(), cfg, extra_ignore)
-
-
 def _visible_tree_children(
     directory: Path,
     cfg: AppConfig | None,
     extra_ignore: set[str] | None,
-    root: Path | None = None,
-) -> list[tuple[Path, bool]]:
-    root = root.resolve() if root else directory.resolve()
-    ignore_dirs, ignore_files, ignore_ext = _tree_ignore_sets(
-        cfg, extra_ignore, root,
-    )
-    children: list[tuple[Path, bool]] = []
-    file_count: int = 0
-
+    root: Path,
+    sets: tuple[set[str], set[str], set[str]],
+) -> list[tuple[str, str, bool]]:
+    """Return ``(name, path, is_dir)`` for visible entries of one directory."""
+    ignore_dirs, ignore_files, ignore_ext = sets
+    children: list[tuple[str, str, bool]] = []
     try:
-        entries = directory.iterdir()
+        with os.scandir(directory) as it:
+            for entry in it:
+                try:
+                    name = entry.name
+                    if entry.is_dir(follow_symlinks=False):
+                        if name in ignore_dirs or name.startswith("."):
+                            continue
+                        rel = _relative_posix(Path(entry.path), root)
+                        if _matches_ignore(rel, name, ignore_dirs):
+                            continue
+                        children.append((name, entry.path, True))
+                    elif entry.is_file():
+                        rel = _relative_posix(Path(entry.path), root)
+                        if _matches_ignore(rel, name, ignore_files):
+                            continue
+                        if _is_self_file(name):
+                            continue
+                        if os.path.splitext(name)[1].lower() in ignore_ext:
+                            continue
+                        children.append((name, entry.path, False))
+                except OSError:
+                    continue
     except OSError:
         return children
 
-    for entry in entries:
-        try:
-            if entry.is_dir() and not entry.is_symlink():
-                rel = _relative_posix(entry, root)
-                if not _matches_ignore(rel, entry.name, ignore_dirs):
-                    children.append((entry, True))
-            elif entry.is_file():
-                rel = _relative_posix(entry, root)
-                if _matches_ignore(rel, entry.name, ignore_files):
-                    continue
-                if _is_self_file(entry.name):
-                    continue
-                if entry.suffix.lower() in ignore_ext:
-                    continue
-                file_count += 1
-                _raise_if_file_limit(file_count)
-                children.append((entry, False))
-        except OSError:
-            continue
-
-    children.sort(key=lambda x: (not x[1], x[0].name.lower()))
+    children.sort(key=lambda x: (not x[2], x[0].lower()))
     return children
 
 
-def _build_limited_tree(
+def iter_limited_tree(
     root: Path,
     cfg: AppConfig | None,
     extra_ignore: set[str] | None,
     sizes: bool,
-    level: int,
-) -> str:
+    level: int | None,
+):
+    """Yield tree lines lazily (iterative DFS, no recursion, no counting)."""
     root = root.resolve()
-    lines: list[str] = [f"📦 {root.name}/"]
+    sets = _ignore_sets(root, cfg, extra_ignore)
+    yield f"📦 {root.name}/"
+    if level is not None and level <= 0:
+        return
 
-    if level <= 0:
-        folders, files = _count_nested_entries(root)
-        if folders == 0 and files == 0:
-            return f"{lines[0]} (empty)"
-        return f"{lines[0]} (+{folders} folders | +{files} files)"
-
-    def _render(directory: Path, prefix: str, depth: int) -> None:
-        items = _visible_tree_children(directory, cfg, extra_ignore, root)
-        for idx, (child, is_dir) in enumerate(items):
-            is_last: bool = idx == len(items) - 1
-            connector: str = "└── " if is_last else "├── "
-            child_prefix: str = prefix + ("    " if is_last else "│   ")
-
-            if is_dir:
-                if depth + 1 >= level:
-                    lines.append(f"{prefix}{connector}{_limited_dir_label(child)}")
-                    continue
-                lines.append(f"{prefix}{connector}📂 {child.name}/")
-                _render(child, child_prefix, depth + 1)
-            else:
-                suffix: str = ""
-                if sizes:
-                    try:
-                        suffix = f"  ({fmt_size(child.stat().st_size)})"
-                    except OSError:
-                        suffix = "  (?)"
-                lines.append(f"{prefix}{connector}📄 {child.name}{suffix}")
-
-    _render(root, "", 0)
-    return "\n".join(lines)
+    # Per-directory child lists are materialised (needed for last-sibling detection).
+    stack: list = []
+    items = _visible_tree_children(root, cfg, extra_ignore, root, sets)
+    stack.append((items, 0, "", 0))
+    while stack:
+        items, idx, prefix, depth = stack.pop()
+        if idx >= len(items):
+            continue
+        stack.append((items, idx + 1, prefix, depth))
+        name, path, is_dir = items[idx]
+        is_last = idx == len(items) - 1
+        connector = "└── " if is_last else "├── "
+        if is_dir:
+            yield f"{prefix}{connector}📂 {name}/"
+            if level is not None and depth + 1 >= level:
+                continue  # stop descending, move to next sibling
+            child_prefix = prefix + ("    " if is_last else "│   ")
+            sub = _visible_tree_children(Path(path), cfg, extra_ignore, root, sets)
+            stack.append((sub, 0, child_prefix, depth + 1))
+        else:
+            suffix = ""
+            if sizes:
+                try:
+                    suffix = f"  ({fmt_size(os.stat(path).st_size)})"
+                except OSError:
+                    suffix = "  (?)"
+            yield f"{prefix}{connector}📄 {name}{suffix}"
 
 
 def build_tree(
@@ -576,7 +520,7 @@ def build_tree(
     into an LLM context window.
     """
     if level is not None:
-        return _build_limited_tree(root, cfg, extra_ignore, sizes, level)
+        return "\n".join(iter_limited_tree(root, cfg, extra_ignore, sizes, level))
 
     root = root.resolve()
     lines: list[str] = [f"📦 {root.name}/"]
